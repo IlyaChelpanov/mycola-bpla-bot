@@ -1,4 +1,4 @@
-from bot import should_respond, strip_mention, summary_intent
+from bot import should_respond, strip_mention, summary_intent, reaction_delta
 
 BOT_USERNAME = "MycolaBPLABot"
 BOT_ID = 12345
@@ -59,3 +59,16 @@ def test_summary_intent_true():
 def test_summary_intent_false():
     assert not summary_intent("какая погода для дрона")
     assert not summary_intent("привет")
+
+
+def test_reaction_delta_added():
+    assert reaction_delta([], ["🔥"]) == ["🔥"]
+    assert reaction_delta(["🔥"], ["🔥", "👍"]) == ["👍"]
+
+
+def test_reaction_delta_removal_not_counted():
+    assert reaction_delta(["🔥", "👍"], ["🔥"]) == []
+
+
+def test_reaction_delta_no_change():
+    assert reaction_delta(["🔥"], ["🔥"]) == []

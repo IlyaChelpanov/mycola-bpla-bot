@@ -5,9 +5,12 @@ import subprocess
 import sys
 import time
 
+from collections import Counter
+
 from telegram import Update
 from telegram.ext import (
-    Application, MessageHandler, CommandHandler, filters, ContextTypes,
+    Application, MessageHandler, CommandHandler, MessageReactionHandler,
+    filters, ContextTypes,
 )
 
 import config as config_mod
@@ -60,6 +63,22 @@ def strip_mention(text: str, bot_username: str) -> str:
 def summary_intent(text: str) -> bool:
     low = text.lower()
     return any(k in low for k in _SUMMARY_KEYWORDS)
+
+
+def reaction_delta(old_emojis, new_emojis):
+    """Emojis newly added (multiset diff new - old). Removals aren't counted."""
+    old, new = Counter(old_emojis), Counter(new_emojis)
+    added = []
+    for emoji, cnt in new.items():
+        added.extend([emoji] * max(0, cnt - old.get(emoji, 0)))
+    return added
+
+
+def _emoji_list(reactions):
+    out = []
+    for r in reactions or []:
+        out.append(getattr(r, "emoji", None) or "🧩")  # 🧩 = custom emoji
+    return out
 
 
 # ---- runtime settings (env defaults, overridable from chat) ----
@@ -133,6 +152,29 @@ def _summarize(cfg, conn, chat_id: int) -> str:
         provider=cfg.provider, model=effective_model(conn, cfg),
         api_key=cfg.active_api_key(), max_tokens=800,
         base_url=cfg.active_base_url(),
+    )
+
+
+async def handle_reaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    mr = update.message_reaction
+    if not mr:
+        return  # anonymous aggregate (message_reaction_count) — ignore
+    user = mr.user.full_name if mr.user else "Аноним"
+    added = reaction_delta(_emoji_list(mr.old_reaction), _emoji_list(mr.new_reaction))
+    for emoji in added:
+        storage.log_reaction(conn, mr.chat.id, user, emoji)
+
+
+async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    rows = storage.reaction_counts(conn, update.effective_message.chat_id)
+    if not rows:
+        await update.effective_message.reply_text("Пока ни одной реакции не поймал.")
+        return
+    lines = [f"{i+1}. {name} — {cnt}" for i, (name, cnt) in enumerate(rows[:20])]
+    await update.effective_message.reply_text(
+        "Кто сколько реакций наставил:\n" + "\n".join(lines)
     )
 
 
@@ -226,10 +268,14 @@ def main() -> None:
     app.add_handler(CommandHandler("prompt", cmd_prompt))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("update", cmd_update))
+    app.add_handler(CommandHandler("reactions", cmd_reactions))
+    app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     log.info("Bot starting (provider=%s, model=%s)", cfg.provider, effective_model(conn, cfg))
-    app.run_polling()
+    # allowed_updates must explicitly include message_reaction — Telegram does
+    # not deliver reaction updates by default.
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":

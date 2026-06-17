@@ -23,6 +23,14 @@ def init_db(path: str) -> sqlite3.Connection:
                value TEXT
            )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS reactions (
+               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+               chat_id   INTEGER NOT NULL,
+               user_name TEXT    NOT NULL,
+               emoji     TEXT    NOT NULL
+           )"""
+    )
     conn.commit()
     return conn
 
@@ -54,6 +62,24 @@ def get_recent(conn: sqlite3.Connection, chat_id: int, n: int):
         (chat_id, n),
     ).fetchall()
     return list(reversed(rows))
+
+
+def log_reaction(conn: sqlite3.Connection, chat_id: int, user_name: str,
+                 emoji: str) -> None:
+    conn.execute(
+        "INSERT INTO reactions (chat_id, user_name, emoji) VALUES (?, ?, ?)",
+        (chat_id, user_name, emoji),
+    )
+    conn.commit()
+
+
+def reaction_counts(conn: sqlite3.Connection, chat_id: int):
+    """Per-user total reactions placed, most first: [(user_name, count), ...]."""
+    return conn.execute(
+        "SELECT user_name, COUNT(*) c FROM reactions WHERE chat_id = ? "
+        "GROUP BY user_name ORDER BY c DESC",
+        (chat_id,),
+    ).fetchall()
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default=None):

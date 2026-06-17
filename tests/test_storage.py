@@ -38,6 +38,22 @@ def test_messages_isolated_per_chat():
     assert [r[1] for r in storage.get_recent(conn, 2, 10)] == ["chat2"]
 
 
+def test_reaction_counts_per_user_sorted():
+    conn = _db()
+    storage.log_reaction(conn, 1, "Олег", "🔥")
+    storage.log_reaction(conn, 1, "Олег", "👍")
+    storage.log_reaction(conn, 1, "Аня", "🔥")
+    rows = storage.reaction_counts(conn, 1)
+    assert rows == [("Олег", 2), ("Аня", 1)]
+
+
+def test_reaction_counts_isolated_per_chat():
+    conn = _db()
+    storage.log_reaction(conn, 1, "Олег", "🔥")
+    storage.log_reaction(conn, 2, "Аня", "🔥")
+    assert storage.reaction_counts(conn, 1) == [("Олег", 1)]
+
+
 def test_settings_get_set_default():
     conn = _db()
     assert storage.get_setting(conn, "k", "def") == "def"

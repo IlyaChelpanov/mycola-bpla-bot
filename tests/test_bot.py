@@ -1,4 +1,6 @@
-from bot import should_respond, strip_mention, summary_intent, reaction_delta
+from bot import (
+    should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
+)
 
 BOT_USERNAME = "MycolaBPLABot"
 BOT_ID = 12345
@@ -72,3 +74,16 @@ def test_reaction_delta_removal_not_counted():
 
 def test_reaction_delta_no_change():
     assert reaction_delta(["🔥"], ["🔥"]) == []
+
+
+def test_parse_period():
+    assert parse_period("саммари за сегодня") == 24 * 3600
+    assert parse_period("о чём за 2 часа") == 7200
+    assert parse_period("перескажи за 30 минут") == 1800
+    assert parse_period("за неделю что было") == 7 * 24 * 3600
+    assert parse_period("за час") == 3600
+
+
+def test_parse_period_none():
+    assert parse_period("сделай саммари") is None
+    assert parse_period("о чём тут говорили") is None

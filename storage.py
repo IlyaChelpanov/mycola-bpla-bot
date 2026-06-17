@@ -4,6 +4,7 @@ Telegram's Bot API cannot fetch past history, so the bot logs every group
 message as it arrives. Only the last `keep` messages per chat are retained.
 """
 import sqlite3
+import time
 
 
 def init_db(path: str) -> sqlite3.Connection:
@@ -13,9 +14,14 @@ def init_db(path: str) -> sqlite3.Connection:
                id        INTEGER PRIMARY KEY AUTOINCREMENT,
                chat_id   INTEGER NOT NULL,
                user_name TEXT    NOT NULL,
-               text      TEXT    NOT NULL
+               text      TEXT    NOT NULL,
+               ts        REAL    NOT NULL DEFAULT 0
            )"""
     )
+    # Migrate older DBs that predate the ts column.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)")]
+    if "ts" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN ts REAL NOT NULL DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat ON messages(chat_id, id)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS settings (
@@ -36,10 +42,12 @@ def init_db(path: str) -> sqlite3.Connection:
 
 
 def log_message(conn: sqlite3.Connection, chat_id: int, user_name: str,
-                text: str, keep: int = 500) -> None:
+                text: str, keep: int = 500, ts: float = None) -> None:
+    if ts is None:
+        ts = time.time()
     conn.execute(
-        "INSERT INTO messages (chat_id, user_name, text) VALUES (?, ?, ?)",
-        (chat_id, user_name, text),
+        "INSERT INTO messages (chat_id, user_name, text, ts) VALUES (?, ?, ?, ?)",
+        (chat_id, user_name, text, ts),
     )
     # Prune everything older than the most recent `keep` rows for this chat.
     conn.execute(
@@ -62,6 +70,15 @@ def get_recent(conn: sqlite3.Connection, chat_id: int, n: int):
         (chat_id, n),
     ).fetchall()
     return list(reversed(rows))
+
+
+def get_since(conn: sqlite3.Connection, chat_id: int, since_ts: float):
+    """Return messages for a chat with ts >= since_ts, oldest first."""
+    return conn.execute(
+        "SELECT user_name, text FROM messages WHERE chat_id = ? AND ts >= ? "
+        "ORDER BY id ASC",
+        (chat_id, since_ts),
+    ).fetchall()
 
 
 def log_reaction(conn: sqlite3.Connection, chat_id: int, user_name: str,

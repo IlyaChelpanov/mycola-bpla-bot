@@ -38,6 +38,14 @@ def test_messages_isolated_per_chat():
     assert [r[1] for r in storage.get_recent(conn, 2, 10)] == ["chat2"]
 
 
+def test_get_since_filters_by_ts():
+    conn = _db()
+    storage.log_message(conn, 1, "u", "old", ts=100.0)
+    storage.log_message(conn, 1, "u", "new", ts=200.0)
+    rows = storage.get_since(conn, 1, since_ts=150.0)
+    assert [r[1] for r in rows] == ["new"]
+
+
 def test_reaction_counts_per_user_sorted():
     conn = _db()
     storage.log_reaction(conn, 1, "Олег", "🔥")

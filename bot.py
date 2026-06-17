@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -63,6 +64,24 @@ def strip_mention(text: str, bot_username: str) -> str:
 def summary_intent(text: str) -> bool:
     low = text.lower()
     return any(k in low for k in _SUMMARY_KEYWORDS)
+
+
+def parse_period(text: str):
+    """Time window in seconds from a request, or None for count-based summary."""
+    low = text.lower()
+    m = re.search(r"за\s+(\d+)\s*час", low)
+    if m:
+        return int(m.group(1)) * 3600
+    m = re.search(r"за\s+(\d+)\s*минут", low)
+    if m:
+        return int(m.group(1)) * 60
+    if "сегодня" in low or "за день" in low or "за сутки" in low or "сутки" in low:
+        return 24 * 3600
+    if "недел" in low:
+        return 7 * 24 * 3600
+    if "за час" in low or "за последний час" in low:
+        return 3600
+    return None
 
 
 def reaction_delta(old_emojis, new_emojis):
@@ -128,7 +147,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     user_text = strip_mention(msg.text, bot.username)
     try:
         if summary_intent(user_text):
-            reply = _summarize(cfg, conn, msg.chat_id)
+            reply = _summarize(cfg, conn, msg.chat_id, parse_period(user_text))
         else:
             reply = llm.generate(
                 effective_prompt(conn, cfg), user_text,
@@ -142,8 +161,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await msg.reply_text(reply or "Ошибка, попробуй позже.")
 
 
-def _summarize(cfg, conn, chat_id: int) -> str:
-    rows = storage.get_recent(conn, chat_id, cfg.summary_count)
+def _summarize(cfg, conn, chat_id: int, period_seconds=None) -> str:
+    if period_seconds:
+        rows = storage.get_since(conn, chat_id, time.time() - period_seconds)
+        if not rows:
+            return "За этот период ничего не писали."
+    else:
+        rows = storage.get_recent(conn, chat_id, cfg.summary_count)
     if not rows:
         return "Пока нечего пересказывать — история пустая."
     transcript = "\n".join(f"{name}: {text}" for name, text in rows)
@@ -212,8 +236,9 @@ async def cmd_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
+    period = parse_period(" ".join(ctx.args)) if ctx.args else None
     try:
-        reply = _summarize(cfg, conn, update.effective_message.chat_id)
+        reply = _summarize(cfg, conn, update.effective_message.chat_id, period)
     except Exception:
         log.exception("summary error")
         reply = "Ошибка, попробуй позже."

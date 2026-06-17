@@ -48,14 +48,16 @@ def _rate_limited(user_id: int, window: int) -> bool:
     return False
 
 
-def should_respond(message, bot_username: str, bot_id: int) -> bool:
+def should_respond(message, bot_username: str, bot_id: int,
+                   reply_mode: bool = False) -> bool:
     # Works for both text messages and photos (caption).
     content = getattr(message, "text", None) or getattr(message, "caption", None) or ""
     if f"@{bot_username}" in content:
         return True
-    reply = getattr(message, "reply_to_message", None)
-    if reply and getattr(reply, "from_user", None) and reply.from_user.id == bot_id:
-        return True
+    if reply_mode:
+        reply = getattr(message, "reply_to_message", None)
+        if reply and getattr(reply, "from_user", None) and reply.from_user.id == bot_id:
+            return True
     return False
 
 
@@ -122,6 +124,10 @@ def effective_owner(conn, cfg) -> int:
     return int(storage.get_setting(conn, "owner_id", str(cfg.owner_id)))
 
 
+def effective_reply_mode(conn) -> bool:
+    return storage.get_setting(conn, "reply_mode", "off") == "on"
+
+
 def _ctx(ctx):
     return ctx.application.bot_data["cfg"], ctx.application.bot_data["conn"]
 
@@ -147,7 +153,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         msg.text, keep=cfg.history_keep,
     )
 
-    if not should_respond(msg, bot.username, bot.id):
+    if not should_respond(msg, bot.username, bot.id, effective_reply_mode(conn)):
         return
     if _rate_limited(msg.from_user.id, cfg.rate_limit_seconds):
         return
@@ -201,7 +207,7 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "[изображение] " + (msg.caption or ""), keep=cfg.history_keep,
     )
 
-    if not should_respond(msg, bot.username, bot.id):
+    if not should_respond(msg, bot.username, bot.id, effective_reply_mode(conn)):
         return  # photo without mention/reply → 0 tokens
     if _rate_limited(msg.from_user.id, cfg.rate_limit_seconds):
         return
@@ -324,6 +330,24 @@ async def cmd_model(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await msg.reply_text("Модель переключена на: " + name)
 
 
+async def cmd_replymode(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    arg = (ctx.args[0].lower() if ctx.args else "")
+    if arg not in ("on", "off"):
+        cur = "on" if effective_reply_mode(conn) else "off"
+        await msg.reply_text(
+            f"Reply-mode сейчас: {cur}. Использование: /replymode on|off "
+            "(on — отвечать на reply к боту; off — только на прямое @упоминание)."
+        )
+        return
+    storage.set_setting(conn, "reply_mode", arg)
+    await msg.reply_text(f"Reply-mode = {arg}.")
+
+
 async def cmd_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
     msg = update.effective_message
@@ -363,6 +387,7 @@ def main() -> None:
     app.add_handler(CommandHandler("prompt", cmd_prompt))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("update", cmd_update))
+    app.add_handler(CommandHandler("replymode", cmd_replymode))
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("pills", cmd_pills))
     app.add_handler(MessageReactionHandler(handle_reaction))

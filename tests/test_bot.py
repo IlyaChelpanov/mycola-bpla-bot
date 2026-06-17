@@ -65,14 +65,25 @@ def test_responds_on_mention():
     assert should_respond(m, BOT_USERNAME, BOT_ID) is True
 
 
-def test_responds_on_reply_to_bot():
+def test_reply_to_bot_only_when_reply_mode_on():
     m = _msg(text="ответ", reply_to_id=BOT_ID)
-    assert should_respond(m, BOT_USERNAME, BOT_ID) is True
+    assert should_respond(m, BOT_USERNAME, BOT_ID, reply_mode=True) is True
+    assert should_respond(m, BOT_USERNAME, BOT_ID, reply_mode=False) is False
+
+
+def test_reply_mode_default_off_ignores_reply():
+    m = _msg(text="ответ", reply_to_id=BOT_ID)
+    assert should_respond(m, BOT_USERNAME, BOT_ID) is False  # default off
+
+
+def test_mention_responds_regardless_of_reply_mode():
+    m = _msg(text="@MycolaBPLABot привет", reply_to_id=BOT_ID)
+    assert should_respond(m, BOT_USERNAME, BOT_ID, reply_mode=False) is True
 
 
 def test_ignores_reply_to_other_user():
     m = _msg(text="ответ", reply_to_id=99999)
-    assert should_respond(m, BOT_USERNAME, BOT_ID) is False
+    assert should_respond(m, BOT_USERNAME, BOT_ID, reply_mode=True) is False
 
 
 def test_ignores_plain_message():

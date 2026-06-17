@@ -168,14 +168,31 @@ async def handle_reaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
-    rows = storage.reaction_counts(conn, update.effective_message.chat_id)
+    chat_id = update.effective_message.chat_id
+    emoji = ctx.args[0] if ctx.args else None
+    if emoji:
+        rows = storage.reaction_counts_by_emoji(conn, chat_id, emoji)
+        title = f"Кто сколько раз ставил {emoji}:"
+    else:
+        rows = storage.reaction_counts(conn, chat_id)
+        title = "Кто сколько реакций наставил:"
+    await _reply_leaderboard(update, rows, title)
+
+
+async def cmd_pills(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    rows = storage.reaction_counts_by_emoji(
+        conn, update.effective_message.chat_id, "💊"
+    )
+    await _reply_leaderboard(update, rows, "💊 Рейтинг таблеточников:")
+
+
+async def _reply_leaderboard(update, rows, title: str) -> None:
     if not rows:
-        await update.effective_message.reply_text("Пока ни одной реакции не поймал.")
+        await update.effective_message.reply_text("Пока пусто — реакций не поймал.")
         return
     lines = [f"{i+1}. {name} — {cnt}" for i, (name, cnt) in enumerate(rows[:20])]
-    await update.effective_message.reply_text(
-        "Кто сколько реакций наставил:\n" + "\n".join(lines)
-    )
+    await update.effective_message.reply_text(title + "\n" + "\n".join(lines))
 
 
 async def cmd_whoami(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,6 +286,7 @@ def main() -> None:
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(CommandHandler("reactions", cmd_reactions))
+    app.add_handler(CommandHandler("pills", cmd_pills))
     app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

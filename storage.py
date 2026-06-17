@@ -82,6 +82,15 @@ def reaction_counts(conn: sqlite3.Connection, chat_id: int):
     ).fetchall()
 
 
+def reaction_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str):
+    """Per-user count of a specific emoji, most first."""
+    return conn.execute(
+        "SELECT user_name, COUNT(*) c FROM reactions WHERE chat_id = ? AND emoji = ? "
+        "GROUP BY user_name ORDER BY c DESC",
+        (chat_id, emoji),
+    ).fetchall()
+
+
 def get_setting(conn: sqlite3.Connection, key: str, default=None):
     row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return row[0] if row else default

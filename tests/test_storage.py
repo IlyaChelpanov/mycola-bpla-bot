@@ -54,6 +54,16 @@ def test_reaction_counts_isolated_per_chat():
     assert storage.reaction_counts(conn, 1) == [("Олег", 1)]
 
 
+def test_reaction_counts_by_emoji():
+    conn = _db()
+    storage.log_reaction(conn, 1, "Олег", "💊")
+    storage.log_reaction(conn, 1, "Олег", "💊")
+    storage.log_reaction(conn, 1, "Аня", "💊")
+    storage.log_reaction(conn, 1, "Аня", "🔥")
+    assert storage.reaction_counts_by_emoji(conn, 1, "💊") == [("Олег", 2), ("Аня", 1)]
+    assert storage.reaction_counts_by_emoji(conn, 1, "🔥") == [("Аня", 1)]
+
+
 def test_settings_get_set_default():
     conn = _db()
     assert storage.get_setting(conn, "k", "def") == "def"

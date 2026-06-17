@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Providers that speak the OpenAI Chat Completions API, with their base URLs.
+# None means the default OpenAI endpoint.
+_OPENAI_COMPATIBLE = {
+    "openai": None,
+    "groq": "https://api.groq.com/openai/v1",
+}
+
 
 @dataclass
 class Config:
@@ -11,10 +18,21 @@ class Config:
     provider: str
     openai_api_key: str
     anthropic_api_key: str
+    groq_api_key: str
     model: str
     system_prompt: str
     max_tokens: int
     rate_limit_seconds: int
+
+    def active_api_key(self) -> str:
+        return {
+            "openai": self.openai_api_key,
+            "groq": self.groq_api_key,
+            "anthropic": self.anthropic_api_key,
+        }[self.provider]
+
+    def active_base_url(self):
+        return _OPENAI_COMPATIBLE.get(self.provider)
 
 
 def _require(name: str) -> str:
@@ -29,15 +47,25 @@ def load_config() -> Config:
     telegram_token = _require("TELEGRAM_TOKEN")
     openai_key = os.getenv("OPENAI_API_KEY", "")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if provider == "openai" and not openai_key:
-        raise ValueError("Missing required env var: OPENAI_API_KEY")
-    if provider == "anthropic" and not anthropic_key:
-        raise ValueError("Missing required env var: ANTHROPIC_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY", "")
+
+    required_key = {
+        "openai": ("OPENAI_API_KEY", openai_key),
+        "groq": ("GROQ_API_KEY", groq_key),
+        "anthropic": ("ANTHROPIC_API_KEY", anthropic_key),
+    }.get(provider)
+    if required_key is None:
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider}")
+    name, value = required_key
+    if not value:
+        raise ValueError(f"Missing required env var: {name}")
+
     return Config(
         telegram_token=telegram_token,
         provider=provider,
         openai_api_key=openai_key,
         anthropic_api_key=anthropic_key,
+        groq_api_key=groq_key,
         model=os.getenv("MODEL", "gpt-4o"),
         system_prompt=os.getenv("SYSTEM_PROMPT", "Отвечай на русском языке."),
         max_tokens=int(os.getenv("MAX_TOKENS", "500")),

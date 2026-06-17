@@ -22,9 +22,17 @@ Swappable LLM backend (OpenAI now, Anthropic later). Stateless.
 3. Set secret env vars in the dashboard: `TELEGRAM_TOKEN`, `OPENAI_API_KEY`, `SYSTEM_PROMPT`.
 4. Deploy. The worker runs `python bot.py` 24/7.
 
-## Switch to Claude later
+## Providers
 
-Set `LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, `MODEL=claude-haiku-4-5`.
+Default is **Groq** (free tier, no card). Switch via `.env`:
+
+| Provider | LLM_PROVIDER | Key var | Example MODEL |
+|----------|--------------|---------|---------------|
+| Groq     | `groq`       | `GROQ_API_KEY`      | `llama-3.3-70b-versatile` |
+| OpenAI   | `openai`     | `OPENAI_API_KEY`    | `gpt-4o-mini` |
+| Anthropic| `anthropic`  | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
+
+Get a free Groq key at https://console.groq.com → API Keys.
 
 ## Test
 

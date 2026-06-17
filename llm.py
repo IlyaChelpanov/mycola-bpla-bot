@@ -1,9 +1,12 @@
 from openai import OpenAI
 import anthropic
 
+# openai + groq both speak the OpenAI Chat Completions API (groq via base_url).
+_OPENAI_COMPATIBLE = {"openai", "groq"}
 
-def _openai_client(api_key: str):
-    return OpenAI(api_key=api_key)
+
+def _openai_client(api_key: str, base_url=None):
+    return OpenAI(api_key=api_key, base_url=base_url)
 
 
 def _anthropic_client(api_key: str):
@@ -11,9 +14,9 @@ def _anthropic_client(api_key: str):
 
 
 def generate(system: str, user: str, *, provider: str, model: str,
-             api_key: str, max_tokens: int) -> str:
-    if provider == "openai":
-        client = _openai_client(api_key)
+             api_key: str, max_tokens: int, base_url=None) -> str:
+    if provider in _OPENAI_COMPATIBLE:
+        client = _openai_client(api_key, base_url=base_url)
         resp = client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,

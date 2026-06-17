@@ -50,8 +50,9 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         reply = llm.generate(
             cfg.system_prompt, user_text,
             provider=cfg.provider, model=cfg.model,
-            api_key=cfg.openai_api_key if cfg.provider == "openai" else cfg.anthropic_api_key,
+            api_key=cfg.active_api_key(),
             max_tokens=cfg.max_tokens,
+            base_url=cfg.active_base_url(),
         )
     except Exception:
         log.exception("LLM error")

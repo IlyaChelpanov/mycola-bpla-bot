@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from telegram import Update
@@ -61,6 +62,12 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def main() -> None:
+    # Python 3.12+ no longer auto-creates an event loop in the main thread;
+    # python-telegram-bot's run_polling() expects one to exist.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
     cfg = config_mod.load_config()
     app = Application.builder().token(cfg.telegram_token).build()
     app.bot_data["cfg"] = cfg

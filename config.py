@@ -28,6 +28,12 @@ class Config:
     summary_count: int
     history_keep: int
     image_daily_limit: int
+    tavily_api_key: str
+    web_search_enabled: bool
+
+    def web_search_active(self) -> bool:
+        """Web search runs only when explicitly enabled and a key is present."""
+        return self.web_search_enabled and bool(self.tavily_api_key)
 
     def active_api_key(self) -> str:
         return {
@@ -80,4 +86,7 @@ def load_config() -> Config:
         summary_count=int(os.getenv("SUMMARY_COUNT", "200")),
         history_keep=int(os.getenv("HISTORY_KEEP", "500")),
         image_daily_limit=int(os.getenv("IMAGE_DAILY_LIMIT", "50")),
+        tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        web_search_enabled=os.getenv("WEB_SEARCH_ENABLED", "false").lower()
+        in ("1", "true", "yes", "on"),
     )

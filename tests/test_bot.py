@@ -1,7 +1,17 @@
+from unittest.mock import patch
+
+import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
-    pick_photo,
+    pick_photo, build_search_fn, effective_web_search, search_system_prompt,
 )
+
+
+class _Cfg:
+    """Minimal stand-in for config.Config in web-search tests."""
+    def __init__(self, web_search_enabled, tavily_api_key):
+        self.web_search_enabled = web_search_enabled
+        self.tavily_api_key = tavily_api_key
 
 
 class _Photo:
@@ -136,3 +146,63 @@ def test_parse_period():
 def test_parse_period_none():
     assert parse_period("сделай саммари") is None
     assert parse_period("о чём тут говорили") is None
+
+
+def test_effective_web_search_env_default_on():
+    conn = storage.init_db(":memory:")
+    assert effective_web_search(conn, _Cfg(True, "tvly-x")) is True
+
+
+def test_effective_web_search_requires_key():
+    conn = storage.init_db(":memory:")
+    assert effective_web_search(conn, _Cfg(True, "")) is False
+
+
+def test_effective_web_search_runtime_override_on():
+    conn = storage.init_db(":memory:")
+    storage.set_setting(conn, "web_search", "on")
+    # env default off, runtime on -> on
+    assert effective_web_search(conn, _Cfg(False, "tvly-x")) is True
+
+
+def test_effective_web_search_runtime_override_off():
+    conn = storage.init_db(":memory:")
+    storage.set_setting(conn, "web_search", "off")
+    # env default on, runtime off -> off
+    assert effective_web_search(conn, _Cfg(True, "tvly-x")) is False
+
+
+def test_effective_web_search_off_without_key_even_if_on():
+    conn = storage.init_db(":memory:")
+    storage.set_setting(conn, "web_search", "on")
+    assert effective_web_search(conn, _Cfg(True, "")) is False
+
+
+def test_build_search_fn_none_when_inactive():
+    conn = storage.init_db(":memory:")
+    assert build_search_fn(conn, _Cfg(False, "")) is None
+
+
+def test_build_search_fn_uses_tavily_when_active():
+    conn = storage.init_db(":memory:")
+    cfg = _Cfg(True, "tvly-x")
+    with patch("bot.websearch.search", return_value="res") as mk:
+        fn = build_search_fn(conn, cfg)
+        out = fn("погода Киев")
+    assert out == "res"
+    mk.assert_called_once_with("погода Киев", api_key="tvly-x")
+
+
+def test_search_system_prompt_appends_guidance_when_active():
+    out = search_system_prompt("Базовый промпт.", True)
+    low = out.lower()
+    assert "Базовый промпт." in out
+    assert "официальн" in low      # prefer official docs/manuals
+    assert "википед" in low        # ...and Wikipedia
+    assert "форум" in low          # ...explicitly demote forums
+    assert ".ru" in low            # ...and avoid Russian sources
+    assert out != "Базовый промпт."
+
+
+def test_search_system_prompt_unchanged_when_inactive():
+    assert search_system_prompt("Базовый промпт.", False) == "Базовый промпт."

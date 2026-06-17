@@ -23,6 +23,10 @@ class Config:
     system_prompt: str
     max_tokens: int
     rate_limit_seconds: int
+    owner_id: int          # 0 = unclaimed; first /claim becomes owner
+    db_path: str
+    summary_count: int
+    history_keep: int
 
     def active_api_key(self) -> str:
         return {
@@ -70,4 +74,8 @@ def load_config() -> Config:
         system_prompt=os.getenv("SYSTEM_PROMPT", "Отвечай на русском языке."),
         max_tokens=int(os.getenv("MAX_TOKENS", "500")),
         rate_limit_seconds=int(os.getenv("RATE_LIMIT_SECONDS", "5")),
+        owner_id=int(os.getenv("OWNER_ID", "0")),
+        db_path=os.getenv("DB_PATH", "bot.db"),
+        summary_count=int(os.getenv("SUMMARY_COUNT", "200")),
+        history_keep=int(os.getenv("HISTORY_KEEP", "500")),
     )

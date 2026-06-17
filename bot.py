@@ -1,17 +1,37 @@
 import asyncio
 import logging
+import os
+import subprocess
+import sys
 import time
+
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application, MessageHandler, CommandHandler, filters, ContextTypes,
+)
 
 import config as config_mod
 import llm
+import storage
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("bot")
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
 _last_request: dict[int, float] = {}
 
+_SUMMARY_KEYWORDS = (
+    "саммари", "о чем", "о чём", "что обсужда", "что писали",
+    "перескажи", "краткий пересказ", "что было",
+)
+_SUMMARY_SYSTEM = (
+    "Ты кратко пересказываешь переписку группового чата. "
+    "Дай сжатое саммари на русском: основные темы и кто что обсуждал, "
+    "по пунктам, без воды."
+)
+
+
+# ---- pure helpers (unit-tested) ----
 
 def _rate_limited(user_id: int, window: int) -> bool:
     now = time.monotonic()
@@ -37,29 +57,153 @@ def strip_mention(text: str, bot_username: str) -> str:
     return text.replace(f"@{bot_username}", "").strip()
 
 
+def summary_intent(text: str) -> bool:
+    low = text.lower()
+    return any(k in low for k in _SUMMARY_KEYWORDS)
+
+
+# ---- runtime settings (env defaults, overridable from chat) ----
+
+def effective_prompt(conn, cfg) -> str:
+    return storage.get_setting(conn, "system_prompt", cfg.system_prompt)
+
+
+def effective_model(conn, cfg) -> str:
+    return storage.get_setting(conn, "model", cfg.model)
+
+
+def effective_owner(conn, cfg) -> int:
+    return int(storage.get_setting(conn, "owner_id", str(cfg.owner_id)))
+
+
+def _ctx(ctx):
+    return ctx.application.bot_data["cfg"], ctx.application.bot_data["conn"]
+
+
+def _is_owner(conn, cfg, user_id: int) -> bool:
+    owner = effective_owner(conn, cfg)
+    return owner != 0 and user_id == owner
+
+
+# ---- handlers ----
+
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    cfg = ctx.application.bot_data["cfg"]
+    cfg, conn = _ctx(ctx)
     bot = ctx.application.bot
     msg = update.effective_message
+    if not msg or not msg.text:
+        return
+
+    # Log every group message so summaries have material to work with.
+    storage.log_message(
+        conn, msg.chat_id,
+        (msg.from_user.full_name if msg.from_user else "?"),
+        msg.text, keep=cfg.history_keep,
+    )
+
     if not should_respond(msg, bot.username, bot.id):
         return
     if _rate_limited(msg.from_user.id, cfg.rate_limit_seconds):
         return
+
     user_text = strip_mention(msg.text, bot.username)
     try:
-        reply = llm.generate(
-            cfg.system_prompt, user_text,
-            provider=cfg.provider, model=cfg.model,
-            api_key=cfg.active_api_key(),
-            max_tokens=cfg.max_tokens,
-            base_url=cfg.active_base_url(),
-        )
+        if summary_intent(user_text):
+            reply = _summarize(cfg, conn, msg.chat_id)
+        else:
+            reply = llm.generate(
+                effective_prompt(conn, cfg), user_text,
+                provider=cfg.provider, model=effective_model(conn, cfg),
+                api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,
+                base_url=cfg.active_base_url(),
+            )
     except Exception:
         log.exception("LLM error")
         reply = "Ошибка, попробуй позже."
-    if not reply:
+    await msg.reply_text(reply or "Ошибка, попробуй позже.")
+
+
+def _summarize(cfg, conn, chat_id: int) -> str:
+    rows = storage.get_recent(conn, chat_id, cfg.summary_count)
+    if not rows:
+        return "Пока нечего пересказывать — история пустая."
+    transcript = "\n".join(f"{name}: {text}" for name, text in rows)
+    return llm.generate(
+        _SUMMARY_SYSTEM, transcript,
+        provider=cfg.provider, model=effective_model(conn, cfg),
+        api_key=cfg.active_api_key(), max_tokens=800,
+        base_url=cfg.active_base_url(),
+    )
+
+
+async def cmd_whoami(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text(
+        f"Твой Telegram id: {update.effective_user.id}"
+    )
+
+
+async def cmd_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    if effective_owner(conn, cfg) != 0:
+        await update.effective_message.reply_text("Владелец уже назначен.")
+        return
+    storage.set_setting(conn, "owner_id", str(update.effective_user.id))
+    await update.effective_message.reply_text("Готово — теперь ты владелец бота.")
+
+
+async def cmd_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    try:
+        reply = _summarize(cfg, conn, update.effective_message.chat_id)
+    except Exception:
+        log.exception("summary error")
         reply = "Ошибка, попробуй позже."
-    await msg.reply_text(reply)
+    await update.effective_message.reply_text(reply)
+
+
+async def cmd_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    text = " ".join(ctx.args).strip()
+    if not text:
+        await msg.reply_text("Текущий промпт:\n\n" + effective_prompt(conn, cfg))
+        return
+    storage.set_setting(conn, "system_prompt", text)
+    await msg.reply_text("Промпт обновлён.")
+
+
+async def cmd_model(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    name = " ".join(ctx.args).strip()
+    if not name:
+        await msg.reply_text("Текущая модель: " + effective_model(conn, cfg))
+        return
+    storage.set_setting(conn, "model", name)
+    await msg.reply_text("Модель переключена на: " + name)
+
+
+async def cmd_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    await msg.reply_text("Обновляюсь с GitHub и перезапускаюсь…")
+    try:
+        subprocess.run(["git", "pull", "--ff-only"], cwd=_HERE, check=False, timeout=60)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r",
+                        "requirements.txt"], cwd=_HERE, check=False, timeout=180)
+    except Exception:
+        log.exception("update error")
+    # systemd (Restart=always) brings us back up with the new code.
+    os._exit(0)
 
 
 def main() -> None:
@@ -69,11 +213,22 @@ def main() -> None:
         asyncio.get_event_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
+
     cfg = config_mod.load_config()
+    conn = storage.init_db(cfg.db_path)
+
     app = Application.builder().token(cfg.telegram_token).build()
     app.bot_data["cfg"] = cfg
+    app.bot_data["conn"] = conn
+    app.add_handler(CommandHandler("whoami", cmd_whoami))
+    app.add_handler(CommandHandler("claim", cmd_claim))
+    app.add_handler(CommandHandler("summary", cmd_summary))
+    app.add_handler(CommandHandler("prompt", cmd_prompt))
+    app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    log.info("Bot starting (provider=%s, model=%s)", cfg.provider, cfg.model)
+
+    log.info("Bot starting (provider=%s, model=%s)", cfg.provider, effective_model(conn, cfg))
     app.run_polling()
 
 

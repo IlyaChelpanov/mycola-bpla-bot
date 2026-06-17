@@ -1,4 +1,4 @@
-from bot import should_respond, strip_mention
+from bot import should_respond, strip_mention, summary_intent
 
 BOT_USERNAME = "MycolaBPLABot"
 BOT_ID = 12345
@@ -48,3 +48,14 @@ def test_ignores_empty_text():
 def test_strip_mention():
     assert strip_mention("@MycolaBPLABot как дела", BOT_USERNAME) == "как дела"
     assert strip_mention("без упоминания", BOT_USERNAME) == "без упоминания"
+
+
+def test_summary_intent_true():
+    assert summary_intent("сделай саммари последних сообщений")
+    assert summary_intent("о чём тут говорили?")
+    assert summary_intent("перескажи что было")
+
+
+def test_summary_intent_false():
+    assert not summary_intent("какая погода для дрона")
+    assert not summary_intent("привет")

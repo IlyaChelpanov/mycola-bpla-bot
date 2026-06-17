@@ -256,7 +256,9 @@ async def cmd_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await msg.reply_text("Обновляюсь с GitHub и перезапускаюсь…")
     try:
-        subprocess.run(["git", "pull", "--ff-only"], cwd=_HERE, check=False, timeout=60)
+        # fetch+reset is robust regardless of branch/tracking state.
+        subprocess.run(["git", "fetch", "origin", "main"], cwd=_HERE, check=False, timeout=60)
+        subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=_HERE, check=False, timeout=60)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r",
                         "requirements.txt"], cwd=_HERE, check=False, timeout=180)
     except Exception:

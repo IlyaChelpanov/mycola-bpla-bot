@@ -1,10 +1,12 @@
 import asyncio
+import base64
 import logging
 import os
 import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 from collections import Counter
 
@@ -47,14 +49,20 @@ def _rate_limited(user_id: int, window: int) -> bool:
 
 
 def should_respond(message, bot_username: str, bot_id: int) -> bool:
-    if not getattr(message, "text", None):
-        return False
-    if f"@{bot_username}" in message.text:
+    # Works for both text messages and photos (caption).
+    content = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    if f"@{bot_username}" in content:
         return True
     reply = getattr(message, "reply_to_message", None)
     if reply and getattr(reply, "from_user", None) and reply.from_user.id == bot_id:
         return True
     return False
+
+
+def pick_photo(photos):
+    """Choose a modest-resolution size to limit vision token cost."""
+    small = [p for p in photos if p.width <= 768]
+    return small[-1] if small else photos[0]
 
 
 def strip_mention(text: str, bot_username: str) -> str:
@@ -177,6 +185,49 @@ def _summarize(cfg, conn, chat_id: int, period_seconds=None) -> str:
         api_key=cfg.active_api_key(), max_tokens=800,
         base_url=cfg.active_base_url(),
     )
+
+
+async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    bot = ctx.application.bot
+    msg = update.effective_message
+    if not msg or not msg.photo:
+        return
+
+    # Log a placeholder so summaries know an image was posted.
+    storage.log_message(
+        conn, msg.chat_id,
+        (msg.from_user.full_name if msg.from_user else "?"),
+        "[изображение] " + (msg.caption or ""), keep=cfg.history_keep,
+    )
+
+    if not should_respond(msg, bot.username, bot.id):
+        return  # photo without mention/reply → 0 tokens
+    if _rate_limited(msg.from_user.id, cfg.rate_limit_seconds):
+        return
+
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not storage.bump_daily_image(conn, day, cfg.image_daily_limit):
+        await msg.reply_text("Лимит картинок на сегодня исчерпан — не жгу токены.")
+        return
+
+    try:
+        photo = pick_photo(msg.photo)
+        f = await bot.get_file(photo.file_id)
+        buf = await f.download_as_bytearray()
+        data_url = "data:image/jpeg;base64," + base64.b64encode(bytes(buf)).decode()
+        caption = strip_mention(msg.caption or "", bot.username) \
+            or "Опиши картинку коротко и в своём стиле."
+        reply = llm.generate(
+            effective_prompt(conn, cfg), caption,
+            provider=cfg.provider, model=effective_model(conn, cfg),
+            api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,
+            base_url=cfg.active_base_url(), image_url=data_url,
+        )
+    except Exception:
+        log.exception("vision error")
+        reply = "Ошибка с картинкой, попробуй позже."
+    await msg.reply_text(reply or "Ошибка с картинкой, попробуй позже.")
 
 
 async def handle_reaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -315,6 +366,7 @@ def main() -> None:
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("pills", cmd_pills))
     app.add_handler(MessageReactionHandler(handle_reaction))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     log.info("Bot starting (provider=%s, model=%s)", cfg.provider, effective_model(conn, cfg))

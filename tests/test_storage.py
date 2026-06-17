@@ -72,6 +72,15 @@ def test_reaction_counts_by_emoji():
     assert storage.reaction_counts_by_emoji(conn, 1, "🔥") == [("Аня", 1)]
 
 
+def test_bump_daily_image_limit_and_reset():
+    conn = _db()
+    assert storage.bump_daily_image(conn, "2026-06-17", limit=2) is True
+    assert storage.bump_daily_image(conn, "2026-06-17", limit=2) is True
+    assert storage.bump_daily_image(conn, "2026-06-17", limit=2) is False  # over
+    # new day resets the counter
+    assert storage.bump_daily_image(conn, "2026-06-18", limit=2) is True
+
+
 def test_settings_get_set_default():
     conn = _db()
     assert storage.get_setting(conn, "k", "def") == "def"

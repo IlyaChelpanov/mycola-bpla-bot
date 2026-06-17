@@ -1,6 +1,44 @@
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
+    pick_photo,
 )
+
+
+class _Photo:
+    def __init__(self, width):
+        self.width = width
+
+
+def test_pick_photo_prefers_modest_size():
+    photos = [_Photo(90), _Photo(320), _Photo(800), _Photo(1280)]
+    assert pick_photo(photos).width == 320  # largest <= 768
+
+
+def test_pick_photo_falls_back_to_smallest():
+    photos = [_Photo(1000), _Photo(2000)]
+    assert pick_photo(photos).width == 1000
+
+
+def _photo_msg(caption=None, reply_to_id=None):
+    class M:
+        pass
+    m = M()
+    m.text = None
+    m.caption = caption
+    if reply_to_id is not None:
+        r = M(); rf = M(); rf.id = reply_to_id; r.from_user = rf
+        m.reply_to_message = r
+    else:
+        m.reply_to_message = None
+    return m
+
+
+def test_should_respond_photo_caption_mention():
+    assert should_respond(_photo_msg(caption="@MycolaBPLABot гляди"), "MycolaBPLABot", 1)
+
+
+def test_should_respond_photo_no_mention():
+    assert not should_respond(_photo_msg(caption="просто фото"), "MycolaBPLABot", 1)
 
 BOT_USERNAME = "MycolaBPLABot"
 BOT_ID = 12345

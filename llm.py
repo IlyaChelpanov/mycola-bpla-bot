@@ -14,15 +14,22 @@ def _anthropic_client(api_key: str):
 
 
 def generate(system: str, user: str, *, provider: str, model: str,
-             api_key: str, max_tokens: int, base_url=None) -> str:
+             api_key: str, max_tokens: int, base_url=None, image_url=None) -> str:
     if provider in _OPENAI_COMPATIBLE:
         client = _openai_client(api_key, base_url=base_url)
+        if image_url:
+            user_content = [
+                {"type": "text", "text": user},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ]
+        else:
+            user_content = user
         resp = client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": user_content},
             ],
         )
         return resp.choices[0].message.content.strip()

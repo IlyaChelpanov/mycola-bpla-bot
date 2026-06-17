@@ -27,6 +27,7 @@ class Config:
     db_path: str
     summary_count: int
     history_keep: int
+    image_daily_limit: int
 
     def active_api_key(self) -> str:
         return {
@@ -78,4 +79,5 @@ def load_config() -> Config:
         db_path=os.getenv("DB_PATH", "bot.db"),
         summary_count=int(os.getenv("SUMMARY_COUNT", "200")),
         history_keep=int(os.getenv("HISTORY_KEEP", "500")),
+        image_daily_limit=int(os.getenv("IMAGE_DAILY_LIMIT", "50")),
     )

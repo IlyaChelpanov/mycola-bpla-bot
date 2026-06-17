@@ -120,3 +120,18 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+
+
+def bump_daily_image(conn: sqlite3.Connection, day: str, limit: int) -> bool:
+    """Increment today's image counter. Return False if the daily limit is hit."""
+    cur_day = get_setting(conn, "img_day", "")
+    cnt = int(get_setting(conn, "img_count", "0"))
+    if cur_day != day:
+        cur_day, cnt = day, 0
+    if cnt >= limit:
+        set_setting(conn, "img_day", cur_day)
+        set_setting(conn, "img_count", str(cnt))
+        return False
+    set_setting(conn, "img_day", day)
+    set_setting(conn, "img_count", str(cnt + 1))
+    return True

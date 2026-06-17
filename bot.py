@@ -129,9 +129,35 @@ def effective_reply_mode(conn) -> bool:
     return storage.get_setting(conn, "reply_mode", "off") == "on"
 
 
-def build_search_fn(cfg):
+def effective_web_search(conn, cfg) -> bool:
+    """Whether web search runs now: runtime toggle (or env default) AND a key.
+
+    The chat command /websearch stores an override; absent that we fall back to
+    the env WEB_SEARCH_ENABLED default. A Tavily key is always required.
+    """
+    setting = storage.get_setting(conn, "web_search", None)
+    enabled = (setting == "on") if setting is not None else cfg.web_search_enabled
+    return enabled and bool(cfg.tavily_api_key)
+
+
+# Appended to the system prompt when web search is active, so the model
+# leans on primary/official sources rather than blogs and aggregators.
+_SEARCH_GUIDANCE = (
+    " Если нужно найти информацию в интернете, ищи прежде всего в официальных "
+    "и первоисточниках: официальные сайты организаций, госорганы, официальные "
+    "данные сервисов и первичные СМИ, а не блоги, форумы и агрегаторы. "
+    "В ответе кратко указывай источник."
+)
+
+
+def search_system_prompt(base: str, search_active: bool) -> str:
+    """Add official-source guidance to the prompt only when search is on."""
+    return base + _SEARCH_GUIDANCE if search_active else base
+
+
+def build_search_fn(conn, cfg):
     """One-arg web-search callable for the LLM, or None when search is off."""
-    if not cfg.web_search_active():
+    if not effective_web_search(conn, cfg):
         return None
     return lambda query: websearch.search(query, api_key=cfg.tavily_api_key)
 
@@ -171,12 +197,16 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         if summary_intent(user_text):
             reply = _summarize(cfg, conn, msg.chat_id, parse_period(user_text))
         else:
+            search_fn = build_search_fn(conn, cfg)
+            system = search_system_prompt(
+                effective_prompt(conn, cfg), search_fn is not None
+            )
             reply = llm.generate(
-                effective_prompt(conn, cfg), user_text,
+                system, user_text,
                 provider=cfg.provider, model=effective_model(conn, cfg),
                 api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,
                 base_url=cfg.active_base_url(),
-                search_fn=build_search_fn(cfg),
+                search_fn=search_fn,
             )
     except Exception:
         log.exception("LLM error")
@@ -357,6 +387,30 @@ async def cmd_replymode(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await msg.reply_text(f"Reply-mode = {arg}.")
 
 
+async def cmd_websearch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    arg = (ctx.args[0].lower() if ctx.args else "")
+    if arg not in ("on", "off"):
+        cur = "on" if effective_web_search(conn, cfg) else "off"
+        await msg.reply_text(
+            f"Веб-поиск сейчас: {cur}. Использование: /websearch on|off "
+            "(on — бот ищет свежую информацию в интернете; off — отвечает без поиска)."
+        )
+        return
+    storage.set_setting(conn, "web_search", arg)
+    if arg == "on" and not cfg.tavily_api_key:
+        await msg.reply_text(
+            "Веб-поиск включён, но TAVILY_API_KEY не задан — поиск не заработает, "
+            "пока ключ не добавят в .env и не перезапустят бота."
+        )
+        return
+    await msg.reply_text(f"Веб-поиск = {arg}.")
+
+
 async def cmd_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
     msg = update.effective_message
@@ -397,6 +451,7 @@ def main() -> None:
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(CommandHandler("replymode", cmd_replymode))
+    app.add_handler(CommandHandler("websearch", cmd_websearch))
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("pills", cmd_pills))
     app.add_handler(MessageReactionHandler(handle_reaction))

@@ -13,7 +13,12 @@ def _client(api_key: str) -> TavilyClient:
 def search(query: str, *, api_key: str, max_results: int = 5) -> str:
     """Run a web search and return a compact text digest for the model."""
     client = _client(api_key)
-    resp = client.search(query, max_results=max_results, include_answer=True)
+    resp = client.search(
+        query,
+        max_results=max_results,
+        include_answer=True,
+        search_depth="advanced",  # better-ranked, more authoritative results
+    )
 
     parts = []
     answer = (resp.get("answer") or "").strip()

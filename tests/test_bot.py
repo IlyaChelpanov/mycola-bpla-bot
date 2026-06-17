@@ -195,8 +195,11 @@ def test_build_search_fn_uses_tavily_when_active():
 
 def test_search_system_prompt_appends_guidance_when_active():
     out = search_system_prompt("Базовый промпт.", True)
+    low = out.lower()
     assert "Базовый промпт." in out
-    assert "официальн" in out.lower()
+    assert "официальн" in low      # prefer official docs/manuals
+    assert "википед" in low        # ...and Wikipedia
+    assert "форум" in low          # ...explicitly demote forums
     assert out != "Базовый промпт."
 
 

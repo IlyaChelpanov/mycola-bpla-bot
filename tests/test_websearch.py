@@ -25,6 +25,8 @@ def test_search_passes_query_and_key():
         websearch.search("курс доллара", api_key="tvly-abc")
     mk.assert_called_once_with("tvly-abc")
     assert fake_client.search.call_args.args[0] == "курс доллара"
+    # advanced depth surfaces better-ranked, more authoritative results
+    assert fake_client.search.call_args.kwargs.get("search_depth") == "advanced"
 
 
 def test_search_empty_results():

@@ -15,12 +15,22 @@ Swappable LLM backend (OpenAI now, Anthropic later). Stateless.
 - @BotFather → `/setprivacy` → select the bot → **Disable** (so it sees group text).
 - Add the bot to your group.
 
-## Deploy (Render)
+## Deploy 24/7 (Google Cloud free e2-micro)
 
-1. Push this repo to GitHub.
-2. Render → New → Blueprint → pick the repo (`render.yaml` is detected).
-3. Set secret env vars in the dashboard: `TELEGRAM_TOKEN`, `OPENAI_API_KEY`, `SYSTEM_PROMPT`.
-4. Deploy. The worker runs `python bot.py` 24/7.
+1. Create a free-tier `e2-micro` VM (region `us-central1`/`us-west1`/`us-east1`, Debian image).
+2. SSH into it (browser SSH button).
+3. Create the env file with your keys:
+   ```bash
+   mkdir -p ~/mycola-bpla-bot
+   nano ~/mycola-bpla-bot/.env   # paste the .env.example contents and fill keys
+   ```
+4. Run the setup script (clones repo, installs, starts auto-restarting service):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/IlyaChelpanov/mycola-bpla-bot/main/deploy/setup.sh | bash
+   ```
+5. Logs: `journalctl -u mycola-bot -f` · Restart: `sudo systemctl restart mycola-bot`
+
+Only one bot instance may poll at a time — stop any local `python bot.py` before the VM goes live (else HTTP 409 Conflict).
 
 ## Providers
 

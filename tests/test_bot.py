@@ -200,6 +200,7 @@ def test_search_system_prompt_appends_guidance_when_active():
     assert "официальн" in low      # prefer official docs/manuals
     assert "википед" in low        # ...and Wikipedia
     assert "форум" in low          # ...explicitly demote forums
+    assert ".ru" in low            # ...and avoid Russian sources
     assert out != "Базовый промпт."
 
 

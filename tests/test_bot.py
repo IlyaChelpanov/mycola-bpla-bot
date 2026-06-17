@@ -1,6 +1,8 @@
+from unittest.mock import MagicMock, patch
+
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
-    pick_photo,
+    pick_photo, build_search_fn,
 )
 
 
@@ -136,3 +138,20 @@ def test_parse_period():
 def test_parse_period_none():
     assert parse_period("сделай саммари") is None
     assert parse_period("о чём тут говорили") is None
+
+
+def test_build_search_fn_none_when_inactive():
+    cfg = MagicMock()
+    cfg.web_search_active.return_value = False
+    assert build_search_fn(cfg) is None
+
+
+def test_build_search_fn_uses_tavily_when_active():
+    cfg = MagicMock()
+    cfg.web_search_active.return_value = True
+    cfg.tavily_api_key = "tvly-x"
+    with patch("bot.websearch.search", return_value="res") as mk:
+        fn = build_search_fn(cfg)
+        out = fn("погода Киев")
+    assert out == "res"
+    mk.assert_called_once_with("погода Киев", api_key="tvly-x")

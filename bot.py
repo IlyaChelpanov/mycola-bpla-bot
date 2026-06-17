@@ -19,6 +19,7 @@ from telegram.ext import (
 import config as config_mod
 import llm
 import storage
+import websearch
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("bot")
@@ -128,6 +129,13 @@ def effective_reply_mode(conn) -> bool:
     return storage.get_setting(conn, "reply_mode", "off") == "on"
 
 
+def build_search_fn(cfg):
+    """One-arg web-search callable for the LLM, or None when search is off."""
+    if not cfg.web_search_active():
+        return None
+    return lambda query: websearch.search(query, api_key=cfg.tavily_api_key)
+
+
 def _ctx(ctx):
     return ctx.application.bot_data["cfg"], ctx.application.bot_data["conn"]
 
@@ -168,6 +176,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 provider=cfg.provider, model=effective_model(conn, cfg),
                 api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,
                 base_url=cfg.active_base_url(),
+                search_fn=build_search_fn(cfg),
             )
     except Exception:
         log.exception("LLM error")

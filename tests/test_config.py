@@ -62,3 +62,35 @@ def test_unknown_provider_raises(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "grok")
     with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
         load_config()
+
+
+def _base_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_TOKEN", "tok")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-x")
+
+
+def test_web_search_disabled_by_default(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.delenv("WEB_SEARCH_ENABLED", raising=False)
+    cfg = load_config()
+    assert cfg.web_search_enabled is False
+    assert cfg.web_search_active() is False
+
+
+def test_web_search_active_requires_key(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.setenv("WEB_SEARCH_ENABLED", "true")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    cfg = load_config()
+    assert cfg.web_search_enabled is True
+    assert cfg.web_search_active() is False  # enabled but no key
+
+
+def test_web_search_active_when_enabled_with_key(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.setenv("WEB_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+    cfg = load_config()
+    assert cfg.tavily_api_key == "tvly-x"
+    assert cfg.web_search_active() is True

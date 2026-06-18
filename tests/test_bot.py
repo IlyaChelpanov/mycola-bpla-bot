@@ -4,6 +4,7 @@ import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
     pick_photo, build_search_fn, effective_web_search, search_system_prompt,
+    parse_count,
 )
 
 
@@ -146,6 +147,12 @@ def test_parse_period():
 def test_parse_period_none():
     assert parse_period("сделай саммари") is None
     assert parse_period("о чём тут говорили") is None
+
+
+def test_parse_count():
+    assert parse_count("саммари последних 50") == 50
+    assert parse_count("перескажи 100 сообщений") == 100
+    assert parse_count("сделай саммари") is None
 
 
 def test_effective_web_search_env_default_on():

@@ -95,6 +95,15 @@ def parse_period(text: str):
     return None
 
 
+def parse_count(text: str):
+    """A plain message count from the request (e.g. 'последних 50'), or None.
+
+    Only called when no time period matched, so 'за 2 часа' never lands here.
+    """
+    m = re.search(r"(\d+)", text)
+    return int(m.group(1)) if m else None
+
+
 def reaction_delta(old_emojis, new_emojis):
     """Emojis newly added (multiset diff new - old). Removals aren't counted."""
     old, new = Counter(old_emojis), Counter(new_emojis)
@@ -200,7 +209,9 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     user_text = strip_mention(msg.text, bot.username)
     try:
         if summary_intent(user_text):
-            reply = _summarize(cfg, conn, msg.chat_id, parse_period(user_text))
+            period = parse_period(user_text)
+            count = None if period else parse_count(user_text)
+            reply = _summarize(cfg, conn, msg.chat_id, period, count)
         else:
             search_fn = build_search_fn(conn, cfg)
             system = search_system_prompt(
@@ -219,13 +230,15 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await msg.reply_text(reply or "Ошибка, попробуй позже.")
 
 
-def _summarize(cfg, conn, chat_id: int, period_seconds=None) -> str:
+def _summarize(cfg, conn, chat_id: int, period_seconds=None, count=None) -> str:
     if period_seconds:
         rows = storage.get_since(conn, chat_id, time.time() - period_seconds)
         if not rows:
             return "За этот период ничего не писали."
     else:
-        rows = storage.get_recent(conn, chat_id, cfg.summary_count)
+        n = count if count else cfg.summary_count
+        n = max(1, min(n, cfg.history_keep))  # clamp to what we actually store
+        rows = storage.get_recent(conn, chat_id, n)
     if not rows:
         return "Пока нечего пересказывать — история пустая."
     transcript = "\n".join(f"{name}: {text}" for name, text in rows)
@@ -337,9 +350,11 @@ async def cmd_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
-    period = parse_period(" ".join(ctx.args)) if ctx.args else None
+    arg = " ".join(ctx.args) if ctx.args else ""
+    period = parse_period(arg)
+    count = None if period else parse_count(arg)
     try:
-        reply = _summarize(cfg, conn, update.effective_message.chat_id, period)
+        reply = _summarize(cfg, conn, update.effective_message.chat_id, period, count)
     except Exception:
         log.exception("summary error")
         reply = "Ошибка, попробуй позже."

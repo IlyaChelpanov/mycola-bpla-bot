@@ -104,56 +104,15 @@ def parse_count(text: str):
     return int(m.group(1)) if m else None
 
 
-# Keyword -> gif pool. First pool whose keyword matches wins. Easy to extend.
-_GIF_TRIGGERS = (
-    ("ignore", (
-        "твоя модель", "какая у тебя модель", "какая модель", "твоя база",
-        "база данных", "исходный код", "твой код", "на чем ты написан",
-        "на чём ты написан", "какой промпт", "системный промпт", "system prompt",
-        "сколько токенов", "что у тебя под капотом", "как ты устроен",
-    )),
-    ("offence", (
-        "дурак", "тупой", "тупая", "идиот", "мудак", "дебил", "лох",
-        "придурок", "урод", "заткнись", "нахуй", "долбоёб", "долбоеб",
-        "кретин", "ничтожество", "тупица", "клоун", "ублюдок", "чмо",
-        "даун", "мразь", "тварь", "хуйня", "говно",
-        # слуры и наезды на участников
-        "пидарас", "пидорас", "пидор", "петух", "жид", "негр", "хач",
-        "гомик", "шлюха", "проститутка",
-    )),
-    ("forbidden", (
-        "футбол", "football",
-        "warhammer", "вархаммер", "вархамер", "вахха", "40k", "сорок тысяч",
-        "машин", "автомобил", "тачка", "тачки",
-    )),
-)
-
-
-def gif_trigger_pool(text: str):
-    """Return the gif pool a message triggers, or None."""
-    low = text.lower()
-    for pool, keywords in _GIF_TRIGGERS:
-        if any(k in low for k in keywords):
-            return pool
-    return None
-
-
-# What each pool means — used to guide the model's send_gif tool by sense.
-_POOL_MEANING = {
-    "ignore": "вопросы про твою модель, код, базу данных, устройство, промпт",
-    "offence": "оскорбления, хамство, слуры и наезды на участников чата, провокации",
-    "forbidden": "футбол, Warhammer 40k, машины",
-}
-
-
 def gif_system_prompt(base: str, pools) -> str:
-    """Append send_gif guidance listing available pools and their meaning."""
+    """Tell the model which gif pools currently exist (it decides via prompt rules)."""
     if not pools:
         return base
-    items = "; ".join(f"'{p}' — {_POOL_MEANING.get(p, 'по смыслу')}" for p in pools)
+    names = ", ".join(f"'{p}'" for p in pools)
     return base + (
-        " У тебя есть гифки-реакции: вместо текста вызывай инструмент send_gif, "
-        "когда сообщение уместно подходит под пул. Пулы: " + items + "."
+        " Доступные пулы гифок для send_gif: " + names +
+        ". Вызывай send_gif согласно правилам выше; если нужного пула нет в "
+        "списке — ответь текстом."
     )
 
 
@@ -260,16 +219,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     user_text = strip_mention(msg.text, bot.username)
-
-    # Gif trigger: if a pool matches and has gifs, reply with one (0 tokens).
-    # Empty pool falls through to the normal LLM text response.
-    gif_pool = gif_trigger_pool(user_text)
-    if gif_pool:
-        fid = storage.random_gif(conn, gif_pool)
-        if fid:
-            await msg.reply_animation(fid)
-            return
-
     try:
         if summary_intent(user_text):
             period = parse_period(user_text)

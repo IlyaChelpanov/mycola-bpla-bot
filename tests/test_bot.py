@@ -4,7 +4,7 @@ import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
     pick_photo, build_search_fn, effective_web_search, search_system_prompt,
-    parse_count, gif_trigger_pool, gif_system_prompt,
+    parse_count, gif_system_prompt,
 )
 
 
@@ -153,31 +153,6 @@ def test_parse_count():
     assert parse_count("саммари последних 50") == 50
     assert parse_count("перескажи 100 сообщений") == 100
     assert parse_count("сделай саммари") is None
-
-
-def test_gif_trigger_pool_ignore():
-    assert gif_trigger_pool("какая у тебя модель?") == "ignore"
-    assert gif_trigger_pool("покажи свой исходный код") == "ignore"
-    assert gif_trigger_pool("сколько токенов жрёшь") == "ignore"
-
-
-def test_gif_trigger_pool_offence():
-    assert gif_trigger_pool("ты тупой бот") == "offence"
-    assert gif_trigger_pool("иди нахуй") == "offence"
-    assert gif_trigger_pool("вот ты клоун") == "offence"
-    assert gif_trigger_pool("кто пидарас в чате?") == "offence"
-
-
-def test_gif_trigger_pool_forbidden():
-    assert gif_trigger_pool("любишь футбол?") == "forbidden"
-    assert gif_trigger_pool("что думаешь про warhammer 40k") == "forbidden"
-    assert gif_trigger_pool("какая машина лучше") == "forbidden"
-
-
-def test_gif_trigger_pool_none():
-    assert gif_trigger_pool("какая погода в Киеве") is None
-    assert gif_trigger_pool("привет") is None
-    assert gif_trigger_pool("кто автор книги") is None  # 'автор' != car keyword
 
 
 def test_gif_system_prompt_lists_pools():

@@ -104,6 +104,26 @@ def parse_count(text: str):
     return int(m.group(1)) if m else None
 
 
+# Keyword -> gif pool. First pool whose keyword matches wins. Easy to extend.
+_GIF_TRIGGERS = (
+    ("ignore", (
+        "твоя модель", "какая у тебя модель", "какая модель", "твоя база",
+        "база данных", "исходный код", "твой код", "на чем ты написан",
+        "на чём ты написан", "какой промпт", "системный промпт", "system prompt",
+        "сколько токенов", "что у тебя под капотом", "как ты устроен",
+    )),
+)
+
+
+def gif_trigger_pool(text: str):
+    """Return the gif pool a message triggers, or None."""
+    low = text.lower()
+    for pool, keywords in _GIF_TRIGGERS:
+        if any(k in low for k in keywords):
+            return pool
+    return None
+
+
 def reaction_delta(old_emojis, new_emojis):
     """Emojis newly added (multiset diff new - old). Removals aren't counted."""
     old, new = Counter(old_emojis), Counter(new_emojis)
@@ -207,6 +227,16 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     user_text = strip_mention(msg.text, bot.username)
+
+    # Gif trigger: if a pool matches and has gifs, reply with one (0 tokens).
+    # Empty pool falls through to the normal LLM text response.
+    gif_pool = gif_trigger_pool(user_text)
+    if gif_pool:
+        fid = storage.random_gif(conn, gif_pool)
+        if fid:
+            await msg.reply_animation(fid)
+            return
+
     try:
         if summary_intent(user_text):
             period = parse_period(user_text)
@@ -431,6 +461,56 @@ async def cmd_websearch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await msg.reply_text(f"Веб-поиск = {arg}.")
 
 
+async def cmd_gifadd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    if not ctx.args:
+        await msg.reply_text("Использование: ответь на гифку командой /gifadd <пул>")
+        return
+    pool = ctx.args[0].lower()
+    reply = msg.reply_to_message
+    fid = None
+    if reply:
+        if reply.animation:
+            fid = reply.animation.file_id
+        elif reply.document:
+            fid = reply.document.file_id
+        elif reply.sticker:
+            fid = reply.sticker.file_id
+    if not fid:
+        await msg.reply_text("Ответь этой командой на сообщение с гифкой.")
+        return
+    n = storage.add_gif(conn, pool, fid)
+    await msg.reply_text(f"Добавил в пул «{pool}» (всего {n}).")
+
+
+async def cmd_gifpools(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    rows = storage.gif_pools(conn)
+    if not rows:
+        await update.effective_message.reply_text("Пулов гифок пока нет.")
+        return
+    txt = "\n".join(f"«{p}» — {c}" for p, c in rows)
+    await update.effective_message.reply_text("Пулы гифок:\n" + txt)
+
+
+async def cmd_gifdel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    if not ctx.args:
+        await msg.reply_text("Использование: /gifdel <пул>")
+        return
+    pool = ctx.args[0].lower()
+    n = storage.delete_pool(conn, pool)
+    await msg.reply_text(f"Удалено из «{pool}»: {n}.")
+
+
 async def cmd_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
     msg = update.effective_message
@@ -474,6 +554,9 @@ def main() -> None:
     app.add_handler(CommandHandler("websearch", cmd_websearch))
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("pills", cmd_pills))
+    app.add_handler(CommandHandler("gifadd", cmd_gifadd))
+    app.add_handler(CommandHandler("gifpools", cmd_gifpools))
+    app.add_handler(CommandHandler("gifdel", cmd_gifdel))
     app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

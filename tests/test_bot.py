@@ -4,7 +4,7 @@ import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
     pick_photo, build_search_fn, effective_web_search, search_system_prompt,
-    parse_count,
+    parse_count, gif_trigger_pool,
 )
 
 
@@ -153,6 +153,17 @@ def test_parse_count():
     assert parse_count("саммари последних 50") == 50
     assert parse_count("перескажи 100 сообщений") == 100
     assert parse_count("сделай саммари") is None
+
+
+def test_gif_trigger_pool_ignore():
+    assert gif_trigger_pool("какая у тебя модель?") == "ignore"
+    assert gif_trigger_pool("покажи свой исходный код") == "ignore"
+    assert gif_trigger_pool("сколько токенов жрёшь") == "ignore"
+
+
+def test_gif_trigger_pool_none():
+    assert gif_trigger_pool("какая погода в Киеве") is None
+    assert gif_trigger_pool("привет") is None
 
 
 def test_effective_web_search_env_default_on():

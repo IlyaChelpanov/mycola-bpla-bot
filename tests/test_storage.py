@@ -81,6 +81,19 @@ def test_bump_daily_image_limit_and_reset():
     assert storage.bump_daily_image(conn, "2026-06-18", limit=2) is True
 
 
+def test_gif_add_random_pools_delete():
+    conn = _db()
+    assert storage.random_gif(conn, "ignore") is None
+    assert storage.add_gif(conn, "ignore", "fid1") == 1
+    assert storage.add_gif(conn, "ignore", "fid2") == 2
+    assert storage.add_gif(conn, "greet", "fid3") == 1
+    assert storage.random_gif(conn, "ignore") in ("fid1", "fid2")
+    assert storage.gif_pools(conn) == [("ignore", 2), ("greet", 1)]
+    assert storage.delete_pool(conn, "ignore") == 2
+    assert storage.random_gif(conn, "ignore") is None
+    assert storage.gif_pools(conn) == [("greet", 1)]
+
+
 def test_settings_get_set_default():
     conn = _db()
     assert storage.get_setting(conn, "k", "def") == "def"

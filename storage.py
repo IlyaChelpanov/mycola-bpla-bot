@@ -37,6 +37,13 @@ def init_db(path: str) -> sqlite3.Connection:
                emoji     TEXT    NOT NULL
            )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS gifs (
+               id      INTEGER PRIMARY KEY AUTOINCREMENT,
+               pool    TEXT NOT NULL,
+               file_id TEXT NOT NULL
+           )"""
+    )
     conn.commit()
     return conn
 
@@ -106,6 +113,38 @@ def reaction_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str)
         "GROUP BY user_name ORDER BY c DESC",
         (chat_id, emoji),
     ).fetchall()
+
+
+def add_gif(conn: sqlite3.Connection, pool: str, file_id: str) -> int:
+    """Add a gif to a pool; return the pool's new size."""
+    conn.execute("INSERT INTO gifs (pool, file_id) VALUES (?, ?)", (pool, file_id))
+    conn.commit()
+    return conn.execute(
+        "SELECT COUNT(*) FROM gifs WHERE pool = ?", (pool,)
+    ).fetchone()[0]
+
+
+def random_gif(conn: sqlite3.Connection, pool: str):
+    """A random file_id from the pool, or None if empty."""
+    row = conn.execute(
+        "SELECT file_id FROM gifs WHERE pool = ? ORDER BY RANDOM() LIMIT 1",
+        (pool,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def gif_pools(conn: sqlite3.Connection):
+    """List of (pool, count), most populated first."""
+    return conn.execute(
+        "SELECT pool, COUNT(*) c FROM gifs GROUP BY pool ORDER BY c DESC"
+    ).fetchall()
+
+
+def delete_pool(conn: sqlite3.Connection, pool: str) -> int:
+    """Delete all gifs in a pool; return how many were removed."""
+    cur = conn.execute("DELETE FROM gifs WHERE pool = ?", (pool,))
+    conn.commit()
+    return cur.rowcount
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default=None):

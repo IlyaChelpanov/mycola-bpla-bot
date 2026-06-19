@@ -165,6 +165,7 @@ def test_gif_trigger_pool_offence():
     assert gif_trigger_pool("ты тупой бот") == "offence"
     assert gif_trigger_pool("иди нахуй") == "offence"
     assert gif_trigger_pool("вот ты клоун") == "offence"
+    assert gif_trigger_pool("кто пидарас в чате?") == "offence"
 
 
 def test_gif_trigger_pool_forbidden():

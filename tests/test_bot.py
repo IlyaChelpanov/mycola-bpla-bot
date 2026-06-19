@@ -167,9 +167,16 @@ def test_gif_trigger_pool_offence():
     assert gif_trigger_pool("вот ты клоун") == "offence"
 
 
+def test_gif_trigger_pool_forbidden():
+    assert gif_trigger_pool("любишь футбол?") == "forbidden"
+    assert gif_trigger_pool("что думаешь про warhammer 40k") == "forbidden"
+    assert gif_trigger_pool("какая машина лучше") == "forbidden"
+
+
 def test_gif_trigger_pool_none():
     assert gif_trigger_pool("какая погода в Киеве") is None
     assert gif_trigger_pool("привет") is None
+    assert gif_trigger_pool("кто автор книги") is None  # 'автор' != car keyword
 
 
 def test_effective_web_search_env_default_on():

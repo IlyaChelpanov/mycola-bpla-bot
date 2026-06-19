@@ -29,6 +29,31 @@ _WEB_SEARCH_TOOL = {
     },
 }
 
+def _make_send_gif_tool(pools):
+    """Tool letting the model answer with a gif from a named pool instead of text."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "send_gif",
+            "description": (
+                "Ответить гифкой-реакцией из пула вместо текста, когда это "
+                "уместно по смыслу. Если вызвал — текст не нужен."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pool": {
+                        "type": "string",
+                        "enum": list(pools),
+                        "description": "Имя пула гифок.",
+                    }
+                },
+                "required": ["pool"],
+            },
+        },
+    }
+
+
 # Safety cap so a misbehaving model can't loop on tool calls forever.
 _MAX_TOOL_ROUNDS = 4
 
@@ -41,18 +66,27 @@ def _anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
 
-def _generate_with_tools(client, model, max_tokens, messages, search_fn) -> str:
-    """Run the chat loop, letting the model call web_search when it wants to."""
+def _generate_with_tools(client, model, max_tokens, messages, tools,
+                         search_fn, gif_request) -> str:
+    """Chat loop letting the model call web_search / send_gif when it wants."""
     for _ in range(_MAX_TOOL_ROUNDS):
         resp = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=messages,
-            tools=[_WEB_SEARCH_TOOL],
+            model=model, max_tokens=max_tokens, messages=messages, tools=tools,
         )
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return (msg.content or "").strip()
+
+        # send_gif short-circuits: record the pool and let the caller send it.
+        for tc in msg.tool_calls:
+            if tc.function.name == "send_gif" and gif_request is not None:
+                try:
+                    pool = json.loads(tc.function.arguments).get("pool", "")
+                except (ValueError, TypeError):
+                    pool = ""
+                if pool:
+                    gif_request.append(pool)
+                    return ""
 
         # Echo the assistant's tool request back, then answer each tool call.
         messages.append({
@@ -71,7 +105,7 @@ def _generate_with_tools(client, model, max_tokens, messages, search_fn) -> str:
             ],
         })
         for tc in msg.tool_calls:
-            if tc.function.name == "web_search":
+            if tc.function.name == "web_search" and search_fn is not None:
                 try:
                     query = json.loads(tc.function.arguments).get("query", "")
                 except (ValueError, TypeError):
@@ -94,7 +128,7 @@ def _generate_with_tools(client, model, max_tokens, messages, search_fn) -> str:
 
 def generate(system: str, user: str, *, provider: str, model: str,
              api_key: str, max_tokens: int, base_url=None, image_url=None,
-             search_fn=None) -> str:
+             search_fn=None, gif_request=None, gif_pools=None) -> str:
     if provider in _OPENAI_COMPATIBLE:
         client = _openai_client(api_key, base_url=base_url)
         if image_url:
@@ -108,9 +142,14 @@ def generate(system: str, user: str, *, provider: str, model: str,
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ]
+        tools = []
         if search_fn is not None:
+            tools.append(_WEB_SEARCH_TOOL)
+        if gif_pools:
+            tools.append(_make_send_gif_tool(gif_pools))
+        if tools:
             return _generate_with_tools(
-                client, model, max_tokens, messages, search_fn
+                client, model, max_tokens, messages, tools, search_fn, gif_request
             )
         resp = client.chat.completions.create(
             model=model,

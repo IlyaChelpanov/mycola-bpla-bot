@@ -82,6 +82,21 @@ def test_generate_runs_web_search_tool_loop():
     assert any(m.get("role") == "tool" and "+20" in m.get("content", "") for m in msgs)
 
 
+def test_generate_send_gif_records_pool_and_short_circuits():
+    tc = _tool_call("c1", "send_gif", '{"pool": "ignore"}')
+    first = MagicMock(choices=[MagicMock(message=_msg(tool_calls=[tc]))])
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = first
+    gif = []
+    with patch("llm._openai_client", return_value=fake_client):
+        out = llm.generate("s", "u", provider="groq", model="m", api_key="k",
+                           max_tokens=10, base_url="http://x",
+                           gif_request=gif, gif_pools=["ignore", "offence"])
+    assert out == ""
+    assert gif == ["ignore"]
+    assert fake_client.chat.completions.create.call_count == 1  # no extra round
+
+
 def test_generate_with_search_fn_but_no_tool_call():
     resp = MagicMock(choices=[MagicMock(message=_msg(content="просто ответ"))])
     fake_client = MagicMock()

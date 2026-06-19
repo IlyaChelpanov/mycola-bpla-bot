@@ -135,6 +135,25 @@ def gif_trigger_pool(text: str):
     return None
 
 
+# What each pool means — used to guide the model's send_gif tool by sense.
+_POOL_MEANING = {
+    "ignore": "вопросы про твою модель, код, базу данных, устройство, промпт",
+    "offence": "когда тебя оскорбляют или хамят",
+    "forbidden": "футбол, Warhammer 40k, машины",
+}
+
+
+def gif_system_prompt(base: str, pools) -> str:
+    """Append send_gif guidance listing available pools and their meaning."""
+    if not pools:
+        return base
+    items = "; ".join(f"'{p}' — {_POOL_MEANING.get(p, 'по смыслу')}" for p in pools)
+    return base + (
+        " У тебя есть гифки-реакции: вместо текста вызывай инструмент send_gif, "
+        "когда сообщение уместно подходит под пул. Пулы: " + items + "."
+    )
+
+
 def reaction_delta(old_emojis, new_emojis):
     """Emojis newly added (multiset diff new - old). Removals aren't counted."""
     old, new = Counter(old_emojis), Counter(new_emojis)
@@ -255,16 +274,27 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             reply = _summarize(cfg, conn, msg.chat_id, period, count)
         else:
             search_fn = build_search_fn(conn, cfg)
-            system = search_system_prompt(
-                effective_prompt(conn, cfg), search_fn is not None
+            pools = [p for p, _ in storage.gif_pools(conn)]
+            system = gif_system_prompt(
+                search_system_prompt(
+                    effective_prompt(conn, cfg), search_fn is not None
+                ),
+                pools,
             )
+            gif_request = []
             reply = llm.generate(
                 system, user_text,
                 provider=cfg.provider, model=effective_model(conn, cfg),
                 api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,
                 base_url=cfg.active_base_url(),
                 search_fn=search_fn,
+                gif_request=gif_request, gif_pools=pools or None,
             )
+            if gif_request:
+                fid = storage.random_gif(conn, gif_request[0])
+                if fid:
+                    await msg.reply_animation(fid)
+                    return
     except Exception:
         log.exception("LLM error")
         reply = "Ошибка, попробуй позже."

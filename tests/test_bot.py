@@ -4,7 +4,7 @@ import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
     pick_photo, build_search_fn, effective_web_search, search_system_prompt,
-    parse_count, gif_trigger_pool,
+    parse_count, gif_trigger_pool, gif_system_prompt,
 )
 
 
@@ -177,6 +177,18 @@ def test_gif_trigger_pool_none():
     assert gif_trigger_pool("какая погода в Киеве") is None
     assert gif_trigger_pool("привет") is None
     assert gif_trigger_pool("кто автор книги") is None  # 'автор' != car keyword
+
+
+def test_gif_system_prompt_lists_pools():
+    out = gif_system_prompt("База.", ["ignore", "forbidden"])
+    assert "База." in out
+    assert "send_gif" in out
+    assert "ignore" in out and "forbidden" in out
+    assert out != "База."
+
+
+def test_gif_system_prompt_empty_unchanged():
+    assert gif_system_prompt("База.", []) == "База."
 
 
 def test_effective_web_search_env_default_on():

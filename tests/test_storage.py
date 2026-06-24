@@ -38,6 +38,16 @@ def test_messages_isolated_per_chat():
     assert [r[1] for r in storage.get_recent(conn, 2, 10)] == ["chat2"]
 
 
+def test_get_recent_by_user():
+    conn = _db()
+    storage.log_message(conn, 1, "Дима Моисеев", "привет")
+    storage.log_message(conn, 1, "Олег", "пока")
+    storage.log_message(conn, 1, "Дима Моисеев", "как дела")
+    rows = storage.get_recent_by_user(conn, 1, "дима", 10)
+    assert [r[1] for r in rows] == ["привет", "как дела"]
+    assert storage.get_recent_by_user(conn, 1, "вася", 10) == []
+
+
 def test_get_since_filters_by_ts():
     conn = _db()
     storage.log_message(conn, 1, "u", "old", ts=100.0)

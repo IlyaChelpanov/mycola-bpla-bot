@@ -84,7 +84,7 @@ def load_config() -> Config:
         owner_id=int(os.getenv("OWNER_ID", "0")),
         db_path=os.getenv("DB_PATH", "bot.db"),
         summary_count=int(os.getenv("SUMMARY_COUNT", "200")),
-        history_keep=int(os.getenv("HISTORY_KEEP", "500")),
+        history_keep=int(os.getenv("HISTORY_KEEP", "750")),
         image_daily_limit=int(os.getenv("IMAGE_DAILY_LIMIT", "50")),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         web_search_enabled=os.getenv("WEB_SEARCH_ENABLED", "false").lower()

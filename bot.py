@@ -36,6 +36,11 @@ _SUMMARY_SYSTEM = (
     "Дай сжатое саммари на русском: основные темы и кто что обсуждал, "
     "по пунктам, без воды."
 )
+_USER_SUMMARY_SYSTEM = (
+    "Ты кратко пересказываешь, о чём писал конкретный участник чата. "
+    "Дай сжатое саммари на русском: основные темы этого человека, "
+    "по пунктам, без воды."
+)
 
 
 # ---- pure helpers (unit-tested) ----
@@ -93,6 +98,22 @@ def parse_period(text: str):
     if "за час" in low or "за последний час" in low:
         return 3600
     return None
+
+
+_USER_SUMMARY_RE = re.compile(
+    r"(?:о ч[её]м|что|про что)\s+(?:говорил|писал|рассказывал|трепался)\s+"
+    r"([а-яёa-z][а-яёa-z]+)", re.IGNORECASE,
+)
+_NAME_STOP = {"тут", "здесь", "там", "сегодня", "вчера", "все", "всё", "что"}
+
+
+def parse_user(text: str):
+    """Name from a singular 'о чём говорил <имя>' query, or None (plural = general)."""
+    m = _USER_SUMMARY_RE.search(text.lower())
+    if not m:
+        return None
+    name = m.group(1)
+    return None if name in _NAME_STOP else name
 
 
 def parse_count(text: str):
@@ -220,7 +241,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
     user_text = strip_mention(msg.text, bot.username)
     try:
-        if summary_intent(user_text):
+        user_name = parse_user(user_text)
+        if user_name:
+            reply = _summarize_user(cfg, conn, msg.chat_id, user_name)
+        elif summary_intent(user_text):
             period = parse_period(user_text)
             count = None if period else parse_count(user_text)
             reply = _summarize(cfg, conn, msg.chat_id, period, count)
@@ -265,8 +289,20 @@ def _summarize(cfg, conn, chat_id: int, period_seconds=None, count=None) -> str:
     if not rows:
         return "Пока нечего пересказывать — история пустая."
     transcript = "\n".join(f"{name}: {text}" for name, text in rows)
+    return _run_summary(cfg, conn, _SUMMARY_SYSTEM, transcript)
+
+
+def _summarize_user(cfg, conn, chat_id: int, name: str) -> str:
+    rows = storage.get_recent_by_user(conn, chat_id, name, cfg.summary_count)
+    if not rows:
+        return f"Не нашёл сообщений от «{name}»."
+    transcript = "\n".join(f"{n}: {t}" for n, t in rows)
+    return _run_summary(cfg, conn, _USER_SUMMARY_SYSTEM, transcript)
+
+
+def _run_summary(cfg, conn, system: str, transcript: str) -> str:
     return llm.generate(
-        _SUMMARY_SYSTEM, transcript,
+        system, transcript,
         provider=cfg.provider, model=effective_model(conn, cfg),
         api_key=cfg.active_api_key(), max_tokens=800,
         base_url=cfg.active_base_url(),

@@ -4,7 +4,7 @@ import storage
 from bot import (
     should_respond, strip_mention, summary_intent, reaction_delta, parse_period,
     pick_photo, build_search_fn, effective_web_search, search_system_prompt,
-    parse_count, gif_system_prompt,
+    parse_count, gif_system_prompt, parse_user,
 )
 
 
@@ -153,6 +153,17 @@ def test_parse_count():
     assert parse_count("саммари последних 50") == 50
     assert parse_count("перескажи 100 сообщений") == 100
     assert parse_count("сделай саммари") is None
+
+
+def test_parse_user_singular():
+    assert parse_user("о чём говорил дима") == "дима"
+    assert parse_user("что писал олег?") == "олег"
+
+
+def test_parse_user_plural_or_none():
+    assert parse_user("о чём говорили") is None        # plural = general
+    assert parse_user("о чём тут говорили") is None
+    assert parse_user("какая погода в Киеве") is None
 
 
 def test_gif_system_prompt_lists_pools():

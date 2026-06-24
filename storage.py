@@ -90,6 +90,21 @@ def get_recent(conn: sqlite3.Connection, chat_id: int, n: int):
     return list(reversed(rows))
 
 
+def get_recent_by_user(conn: sqlite3.Connection, chat_id: int, name: str, n: int):
+    """Last `n` messages whose author name contains `name` (case-insensitive).
+
+    Filtering is done in Python because SQLite's LOWER() only handles ASCII,
+    not Cyrillic.
+    """
+    needle = name.lower()
+    rows = conn.execute(
+        "SELECT user_name, text FROM messages WHERE chat_id = ? ORDER BY id DESC",
+        (chat_id,),
+    ).fetchall()
+    matched = [(u, t) for (u, t) in rows if needle in u.lower()][:n]
+    return list(reversed(matched))
+
+
 def get_since(conn: sqlite3.Connection, chat_id: int, since_ts: float):
     """Return messages for a chat with ts >= since_ts, oldest first."""
     return conn.execute(

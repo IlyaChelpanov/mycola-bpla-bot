@@ -53,6 +53,12 @@ def init_db(path: str) -> sqlite3.Connection:
                file_id TEXT NOT NULL
            )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS aliases (
+               alias  TEXT PRIMARY KEY,
+               target TEXT NOT NULL
+           )"""
+    )
     conn.commit()
     return conn
 
@@ -88,6 +94,32 @@ def get_recent(conn: sqlite3.Connection, chat_id: int, n: int):
         (chat_id, n),
     ).fetchall()
     return list(reversed(rows))
+
+
+def set_alias(conn: sqlite3.Connection, alias: str, target: str) -> None:
+    conn.execute(
+        "INSERT INTO aliases (alias, target) VALUES (?, ?) "
+        "ON CONFLICT(alias) DO UPDATE SET target = excluded.target",
+        (alias.lower(), target),
+    )
+    conn.commit()
+
+
+def get_alias(conn: sqlite3.Connection, alias: str):
+    row = conn.execute(
+        "SELECT target FROM aliases WHERE alias = ?", (alias.lower(),)
+    ).fetchone()
+    return row[0] if row else None
+
+
+def list_aliases(conn: sqlite3.Connection):
+    return conn.execute("SELECT alias, target FROM aliases ORDER BY alias").fetchall()
+
+
+def del_alias(conn: sqlite3.Connection, alias: str) -> int:
+    cur = conn.execute("DELETE FROM aliases WHERE alias = ?", (alias.lower(),))
+    conn.commit()
+    return cur.rowcount
 
 
 def get_recent_by_user(conn: sqlite3.Connection, chat_id: int, name: str, n: int):

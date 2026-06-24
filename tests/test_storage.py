@@ -38,6 +38,18 @@ def test_messages_isolated_per_chat():
     assert [r[1] for r in storage.get_recent(conn, 2, 10)] == ["chat2"]
 
 
+def test_aliases_set_get_list_del():
+    conn = _db()
+    assert storage.get_alias(conn, "дима") is None
+    storage.set_alias(conn, "Дима", "Dmytro")          # stored lowercased
+    assert storage.get_alias(conn, "дима") == "Dmytro"
+    storage.set_alias(conn, "дима", "Dmytro Tiutiunnik")  # upsert
+    assert storage.get_alias(conn, "ДИМА") == "Dmytro Tiutiunnik"
+    assert storage.list_aliases(conn) == [("дима", "Dmytro Tiutiunnik")]
+    assert storage.del_alias(conn, "Дима") == 1
+    assert storage.get_alias(conn, "дима") is None
+
+
 def test_get_recent_by_user():
     conn = _db()
     storage.log_message(conn, 1, "Дима Моисеев", "привет")

@@ -293,7 +293,8 @@ def _summarize(cfg, conn, chat_id: int, period_seconds=None, count=None) -> str:
 
 
 def _summarize_user(cfg, conn, chat_id: int, name: str) -> str:
-    rows = storage.get_recent_by_user(conn, chat_id, name, cfg.summary_count)
+    target = storage.get_alias(conn, name) or name  # nickname -> display name
+    rows = storage.get_recent_by_user(conn, chat_id, target, cfg.summary_count)
     if not rows:
         return f"Не нашёл сообщений от «{name}»."
     transcript = "\n".join(f"{n}: {t}" for n, t in rows)
@@ -498,6 +499,37 @@ async def cmd_websearch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await msg.reply_text(f"Веб-поиск = {arg}.")
 
 
+async def cmd_alias(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    args = ctx.args or []
+    # listing is open to all; mutating is owner-only
+    if not args:
+        rows = storage.list_aliases(conn)
+        if not rows:
+            await msg.reply_text(
+                "Алиасов нет. Добавить: /alias <ник> <имя в Telegram>"
+            )
+            return
+        await msg.reply_text(
+            "Алиасы:\n" + "\n".join(f"{a} → {t}" for a, t in rows)
+        )
+        return
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    if args[0].lower() == "del" and len(args) >= 2:
+        n = storage.del_alias(conn, args[1])
+        await msg.reply_text(f"Удалено: {n}.")
+        return
+    if len(args) < 2:
+        await msg.reply_text("Использование: /alias <ник> <имя в Telegram> | /alias del <ник>")
+        return
+    alias, target = args[0], " ".join(args[1:])
+    storage.set_alias(conn, alias, target)
+    await msg.reply_text(f"Алиас: {alias.lower()} → {target}")
+
+
 async def cmd_gifadd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg, conn = _ctx(ctx)
     msg = update.effective_message
@@ -592,6 +624,7 @@ def main() -> None:
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("mostliked", cmd_mostliked))
     app.add_handler(CommandHandler("pills", cmd_pills))
+    app.add_handler(CommandHandler("alias", cmd_alias))
     app.add_handler(CommandHandler("gifadd", cmd_gifadd))
     app.add_handler(CommandHandler("gifpools", cmd_gifpools))
     app.add_handler(CommandHandler("gifdel", cmd_gifdel))

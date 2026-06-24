@@ -103,6 +103,16 @@ def test_received_counts():
     assert storage.received_counts(conn, 1) == [("Олег", 2), ("Аня", 1)]
 
 
+def test_received_counts_by_emoji():
+    conn = _db()
+    storage.log_reaction(conn, 1, "Аня", "👍", "Олег")
+    storage.log_reaction(conn, 1, "Вася", "👍", "Олег")
+    storage.log_reaction(conn, 1, "Олег", "👍", "Аня")
+    storage.log_reaction(conn, 1, "Аня", "🔥", "Олег")  # different emoji
+    assert storage.received_counts_by_emoji(conn, 1, "👍") == [("Олег", 2), ("Аня", 1)]
+    assert storage.received_counts_by_emoji(conn, 1, "🔥") == [("Олег", 1)]
+
+
 def test_reaction_counts_by_emoji():
     conn = _db()
     storage.log_reaction(conn, 1, "Олег", "💊")

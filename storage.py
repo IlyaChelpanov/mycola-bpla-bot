@@ -178,6 +178,16 @@ def received_counts(conn: sqlite3.Connection, chat_id: int):
     ).fetchall()
 
 
+def received_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str):
+    """Per-author count of a specific emoji their messages received, most first."""
+    return conn.execute(
+        "SELECT target_user, COUNT(*) c FROM reactions "
+        "WHERE chat_id = ? AND emoji = ? AND target_user <> '' AND target_user <> '?' "
+        "GROUP BY target_user ORDER BY c DESC",
+        (chat_id, emoji),
+    ).fetchall()
+
+
 def reaction_counts(conn: sqlite3.Connection, chat_id: int):
     """Per-user total reactions placed, most first: [(user_name, count), ...]."""
     return conn.execute(

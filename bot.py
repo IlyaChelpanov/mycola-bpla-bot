@@ -381,8 +381,15 @@ async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_mostliked(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
-    rows = storage.received_counts(conn, update.effective_message.chat_id)
-    await _reply_leaderboard(update, rows, "Чьи сообщения собрали больше всего реакций:")
+    chat_id = update.effective_message.chat_id
+    emoji = ctx.args[0] if ctx.args else None
+    if emoji:
+        rows = storage.received_counts_by_emoji(conn, chat_id, emoji)
+        title = f"Чьи сообщения собрали больше всего {emoji}:"
+    else:
+        rows = storage.received_counts(conn, chat_id)
+        title = "Чьи сообщения собрали больше всего реакций:"
+    await _reply_leaderboard(update, rows, title)
 
 
 async def cmd_pills(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

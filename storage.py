@@ -18,11 +18,16 @@ def init_db(path: str) -> sqlite3.Connection:
                ts        REAL    NOT NULL DEFAULT 0
            )"""
     )
-    # Migrate older DBs that predate the ts column.
+    # Migrate older DBs that predate later columns.
     cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)")]
     if "ts" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN ts REAL NOT NULL DEFAULT 0")
+    if "message_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN message_id INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat ON messages(chat_id, id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_msgid ON messages(chat_id, message_id)"
+    )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS settings (
                key   TEXT PRIMARY KEY,
@@ -31,12 +36,16 @@ def init_db(path: str) -> sqlite3.Connection:
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS reactions (
-               id        INTEGER PRIMARY KEY AUTOINCREMENT,
-               chat_id   INTEGER NOT NULL,
-               user_name TEXT    NOT NULL,
-               emoji     TEXT    NOT NULL
+               id          INTEGER PRIMARY KEY AUTOINCREMENT,
+               chat_id     INTEGER NOT NULL,
+               user_name   TEXT    NOT NULL,
+               emoji       TEXT    NOT NULL,
+               target_user TEXT    NOT NULL DEFAULT ''
            )"""
     )
+    rcols = [r[1] for r in conn.execute("PRAGMA table_info(reactions)")]
+    if "target_user" not in rcols:
+        conn.execute("ALTER TABLE reactions ADD COLUMN target_user TEXT NOT NULL DEFAULT ''")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS gifs (
                id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,12 +58,14 @@ def init_db(path: str) -> sqlite3.Connection:
 
 
 def log_message(conn: sqlite3.Connection, chat_id: int, user_name: str,
-                text: str, keep: int = 500, ts: float = None) -> None:
+                text: str, keep: int = 500, ts: float = None,
+                message_id: int = 0) -> None:
     if ts is None:
         ts = time.time()
     conn.execute(
-        "INSERT INTO messages (chat_id, user_name, text, ts) VALUES (?, ?, ?, ?)",
-        (chat_id, user_name, text, ts),
+        "INSERT INTO messages (chat_id, user_name, text, ts, message_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (chat_id, user_name, text, ts, message_id),
     )
     # Prune everything older than the most recent `keep` rows for this chat.
     conn.execute(
@@ -88,13 +99,36 @@ def get_since(conn: sqlite3.Connection, chat_id: int, since_ts: float):
     ).fetchall()
 
 
+def author_by_message(conn: sqlite3.Connection, chat_id: int, message_id: int):
+    """Who wrote a given message, or None if it isn't in our log."""
+    if not message_id:
+        return None
+    row = conn.execute(
+        "SELECT user_name FROM messages WHERE chat_id = ? AND message_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (chat_id, message_id),
+    ).fetchone()
+    return row[0] if row else None
+
+
 def log_reaction(conn: sqlite3.Connection, chat_id: int, user_name: str,
-                 emoji: str) -> None:
+                 emoji: str, target_user: str = "") -> None:
     conn.execute(
-        "INSERT INTO reactions (chat_id, user_name, emoji) VALUES (?, ?, ?)",
-        (chat_id, user_name, emoji),
+        "INSERT INTO reactions (chat_id, user_name, emoji, target_user) "
+        "VALUES (?, ?, ?, ?)",
+        (chat_id, user_name, emoji, target_user),
     )
     conn.commit()
+
+
+def received_counts(conn: sqlite3.Connection, chat_id: int):
+    """Per-author total reactions their messages received, most first."""
+    return conn.execute(
+        "SELECT target_user, COUNT(*) c FROM reactions "
+        "WHERE chat_id = ? AND target_user <> '' AND target_user <> '?' "
+        "GROUP BY target_user ORDER BY c DESC",
+        (chat_id,),
+    ).fetchall()
 
 
 def reaction_counts(conn: sqlite3.Connection, chat_id: int):

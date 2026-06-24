@@ -62,6 +62,25 @@ def test_reaction_counts_isolated_per_chat():
     assert storage.reaction_counts(conn, 1) == [("Олег", 1)]
 
 
+def test_author_by_message():
+    conn = _db()
+    storage.log_message(conn, 1, "Олег", "привет", message_id=555)
+    assert storage.author_by_message(conn, 1, 555) == "Олег"
+    assert storage.author_by_message(conn, 1, 999) is None
+    assert storage.author_by_message(conn, 1, 0) is None
+
+
+def test_received_counts():
+    conn = _db()
+    # Олег's messages got 2 reactions, Аня's got 1; '?' ignored
+    storage.log_reaction(conn, 1, "Аня", "🔥", "Олег")
+    storage.log_reaction(conn, 1, "Вася", "👍", "Олег")
+    storage.log_reaction(conn, 1, "Олег", "🔥", "Аня")
+    storage.log_reaction(conn, 1, "Аня", "🔥", "?")     # unknown author
+    storage.log_reaction(conn, 1, "Аня", "🔥", "")       # legacy/no target
+    assert storage.received_counts(conn, 1) == [("Олег", 2), ("Аня", 1)]
+
+
 def test_reaction_counts_by_emoji():
     conn = _db()
     storage.log_reaction(conn, 1, "Олег", "💊")

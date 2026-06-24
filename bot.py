@@ -210,7 +210,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     storage.log_message(
         conn, msg.chat_id,
         (msg.from_user.full_name if msg.from_user else "?"),
-        msg.text, keep=cfg.history_keep,
+        msg.text, keep=cfg.history_keep, message_id=msg.message_id,
     )
 
     if not should_respond(msg, bot.username, bot.id, effective_reply_mode(conn)):
@@ -285,6 +285,7 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         conn, msg.chat_id,
         (msg.from_user.full_name if msg.from_user else "?"),
         "[изображение] " + (msg.caption or ""), keep=cfg.history_keep,
+        message_id=msg.message_id,
     )
 
     if not should_respond(msg, bot.username, bot.id, effective_reply_mode(conn)):
@@ -322,9 +323,10 @@ async def handle_reaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     if not mr:
         return  # anonymous aggregate (message_reaction_count) — ignore
     user = mr.user.full_name if mr.user else "Аноним"
+    target = storage.author_by_message(conn, mr.chat.id, mr.message_id) or "?"
     added = reaction_delta(_emoji_list(mr.old_reaction), _emoji_list(mr.new_reaction))
     for emoji in added:
-        storage.log_reaction(conn, mr.chat.id, user, emoji)
+        storage.log_reaction(conn, mr.chat.id, user, emoji, target)
 
 
 async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -338,6 +340,12 @@ async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         rows = storage.reaction_counts(conn, chat_id)
         title = "Кто сколько реакций наставил:"
     await _reply_leaderboard(update, rows, title)
+
+
+async def cmd_mostliked(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    rows = storage.received_counts(conn, update.effective_message.chat_id)
+    await _reply_leaderboard(update, rows, "Чьи сообщения собрали больше всего реакций:")
 
 
 async def cmd_pills(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -546,6 +554,7 @@ def main() -> None:
     app.add_handler(CommandHandler("replymode", cmd_replymode))
     app.add_handler(CommandHandler("websearch", cmd_websearch))
     app.add_handler(CommandHandler("reactions", cmd_reactions))
+    app.add_handler(CommandHandler("mostliked", cmd_mostliked))
     app.add_handler(CommandHandler("pills", cmd_pills))
     app.add_handler(CommandHandler("gifadd", cmd_gifadd))
     app.add_handler(CommandHandler("gifpools", cmd_gifpools))

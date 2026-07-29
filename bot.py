@@ -161,7 +161,11 @@ def _emoji_list(reactions):
 # ---- runtime settings (env defaults, overridable from chat) ----
 
 def effective_prompt(conn, cfg) -> str:
-    return storage.get_setting(conn, "system_prompt", cfg.system_prompt)
+    base = storage.get_setting(conn, "system_prompt", cfg.system_prompt)
+    tone = _ATTITUDE_LEVELS.get(storage.get_setting(conn, "attitude", "2"), "")
+    if tone:
+        base += " Поправка к тону (перекрывает общий тон выше): " + tone
+    return base
 
 
 def effective_model(conn, cfg) -> str:
@@ -417,6 +421,36 @@ async def _reply_leaderboard(update, rows, title: str) -> None:
     await update.effective_message.reply_text(title + "\n" + "\n".join(lines))
 
 
+
+# ---- /бычка: attitude level 0..3 (0 = harmless, 3 = arrogant jerk) ----
+
+_ATTITUDE_LEVELS = {
+    "0": "Максимально дружелюбный и безобидный: никакого сарказма и подколов, отвечай мягко, тепло и помогай.",
+    "1": "Лёгкая ирония: добродушные подколы допустимы, но в целом вежливый и доброжелательный.",
+    "2": "",  # базовый тон из промпта
+    "3": "Ты нарциссичный наглый хам: считаешь себя умнее всех в чате и не скрываешь этого, отвечай свысока, с презрением и понтами.",
+}
+
+
+async def cmd_attitude(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not _is_owner(conn, cfg, update.effective_user.id):
+        await msg.reply_text("Только для владельца.")
+        return
+    parts = (msg.text or "").split()
+    arg = parts[1] if len(parts) > 1 else None
+    if arg is None:
+        await msg.reply_text(
+            "Уровень быка: " + storage.get_setting(conn, "attitude", "2"))
+        return
+    if arg not in _ATTITUDE_LEVELS:
+        await msg.reply_text("Уровень от 0 до 3.")
+        return
+    storage.set_setting(conn, "attitude", arg)
+    await msg.reply_text(f"Уровень быка: {arg} 🐂")
+
+
 async def cmd_whoami(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         f"Твой Telegram id: {update.effective_user.id}"
@@ -644,6 +678,9 @@ def main() -> None:
     app.add_handler(CommandHandler("gifadd", cmd_gifadd))
     app.add_handler(CommandHandler("gifpools", cmd_gifpools))
     app.add_handler(CommandHandler("gifdel", cmd_gifdel))
+    app.add_handler(CommandHandler("bychka", cmd_attitude))
+    app.add_handler(MessageHandler(
+        filters.Regex(r"^/бычка(\s|$)"), cmd_attitude))
     app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

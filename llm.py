@@ -4,7 +4,7 @@ from openai import OpenAI
 import anthropic
 
 # openai + groq both speak the OpenAI Chat Completions API (groq via base_url).
-_OPENAI_COMPATIBLE = {"openai", "groq"}
+_OPENAI_COMPATIBLE = {"openai", "groq", "gemini"}
 
 # Function-calling tool offered to the model so it can fetch live info itself.
 _WEB_SEARCH_TOOL = {
@@ -62,6 +62,13 @@ def _openai_client(api_key: str, base_url=None):
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
+def _extra_kwargs(model: str) -> dict:
+    # Gemini thinking models burn ~25s on reasoning; disable for snappy chat.
+    if model.startswith("gemini"):
+        return {"reasoning_effort": "low"}
+    return {}
+
+
 def _anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
@@ -72,6 +79,7 @@ def _generate_with_tools(client, model, max_tokens, messages, tools,
     for _ in range(_MAX_TOOL_ROUNDS):
         resp = client.chat.completions.create(
             model=model, max_tokens=max_tokens, messages=messages, tools=tools,
+            **_extra_kwargs(model),
         )
         msg = resp.choices[0].message
         if not msg.tool_calls:
@@ -88,22 +96,10 @@ def _generate_with_tools(client, model, max_tokens, messages, tools,
                     gif_request.append(pool)
                     return ""
 
-        # Echo the assistant's tool request back, then answer each tool call.
-        messages.append({
-            "role": "assistant",
-            "content": msg.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in msg.tool_calls
-            ],
-        })
+        # Echo the assistant's tool request back verbatim, then answer each
+        # tool call. to_dict() keeps provider extras (e.g. Gemini's
+        # thought_signature) that must round-trip or the API rejects us.
+        messages.append(msg.to_dict())
         for tc in msg.tool_calls:
             if tc.function.name == "web_search" and search_fn is not None:
                 try:
@@ -122,6 +118,7 @@ def _generate_with_tools(client, model, max_tokens, messages, tools,
     # Tool budget exhausted: force a final answer without tools.
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens, messages=messages,
+        **_extra_kwargs(model),
     )
     return (resp.choices[0].message.content or "").strip()
 
@@ -155,6 +152,7 @@ def generate(system: str, user: str, *, provider: str, model: str,
             model=model,
             max_tokens=max_tokens,
             messages=messages,
+            **_extra_kwargs(model),
         )
         return resp.choices[0].message.content.strip()
     if provider == "anthropic":

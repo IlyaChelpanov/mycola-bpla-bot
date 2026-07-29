@@ -9,6 +9,7 @@ load_dotenv()
 _OPENAI_COMPATIBLE = {
     "openai": None,
     "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
 }
 
 
@@ -19,6 +20,7 @@ class Config:
     openai_api_key: str
     anthropic_api_key: str
     groq_api_key: str
+    gemini_api_key: str
     model: str
     system_prompt: str
     max_tokens: int
@@ -39,6 +41,7 @@ class Config:
         return {
             "openai": self.openai_api_key,
             "groq": self.groq_api_key,
+            "gemini": self.gemini_api_key,
             "anthropic": self.anthropic_api_key,
         }[self.provider]
 
@@ -59,10 +62,12 @@ def load_config() -> Config:
     openai_key = os.getenv("OPENAI_API_KEY", "")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     groq_key = os.getenv("GROQ_API_KEY", "")
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
 
     required_key = {
         "openai": ("OPENAI_API_KEY", openai_key),
         "groq": ("GROQ_API_KEY", groq_key),
+        "gemini": ("GEMINI_API_KEY", gemini_key),
         "anthropic": ("ANTHROPIC_API_KEY", anthropic_key),
     }.get(provider)
     if required_key is None:
@@ -77,6 +82,7 @@ def load_config() -> Config:
         openai_api_key=openai_key,
         anthropic_api_key=anthropic_key,
         groq_api_key=groq_key,
+        gemini_api_key=gemini_key,
         model=os.getenv("MODEL", "gpt-4o"),
         system_prompt=os.getenv("SYSTEM_PROMPT", "Отвечай на русском языке."),
         max_tokens=int(os.getenv("MAX_TOKENS", "500")),

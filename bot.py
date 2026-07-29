@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 
 from collections import Counter
+import asyncio
 
 from telegram import Update
 from telegram.ext import (
@@ -262,7 +263,11 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 pools,
             )
             gif_request = []
-            reply = llm.generate(
+            # ponytail: run the sync LLM call in a thread so the event
+            # loop keeps polling; summary/photo paths still block, move them
+            # the same way if they start lagging too.
+            reply = await asyncio.to_thread(
+                llm.generate,
                 system, user_text,
                 provider=cfg.provider, model=effective_model(conn, cfg),
                 api_key=cfg.active_api_key(), max_tokens=cfg.max_tokens,

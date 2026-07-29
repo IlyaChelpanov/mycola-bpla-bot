@@ -249,6 +249,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     user_text = strip_mention(msg.text, bot.username)
+    await msg.chat.send_action("typing")  # LLM може думати десятки секунд
     try:
         user_name = parse_user(user_text)
         if user_name:

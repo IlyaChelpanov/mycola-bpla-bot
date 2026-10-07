@@ -254,7 +254,7 @@ def test_message_stats():
     from types import SimpleNamespace as NS
     from bot import message_stats
     base = dict(text=None, caption=None, entities=(), caption_entities=(),
-                photo=None, video=None, video_note=None, forward_origin=None)
+                photo=None, video=None, video_note=None, forward_origin=None, animation=None)
     text = NS(**{**base, "text": "Привет, ok 123 https://x.y",
                  "entities": (NS(type="url"),)})
     assert message_stats(text) == {"msg": 1, "letters": 15, "link": 1}
@@ -264,6 +264,8 @@ def test_message_stats():
     assert message_stats(note) == {"msg": 1, "video": 1}
     fwd = NS(**{**base, "text": "ok", "forward_origin": object()})
     assert message_stats(fwd) == {"msg": 1, "letters": 2, "forward": 1}
+    gif = NS(**{**base, "animation": object()})
+    assert message_stats(gif) == {"msg": 1, "gif": 1}
 
 
 def test_format_nominations():

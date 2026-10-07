@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from collections import Counter
 import asyncio
+from html import escape
 
 from telegram import Update
 from telegram.ext import (
@@ -429,30 +430,43 @@ async def count_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 _NOMINATIONS = [
-    ("msg", "🗣 Больше всего сообщений"),
-    ("link", "🔗 Больше всего ссылок"),
-    ("photo", "📸 Больше всего картинок"),
-    ("video", "🎬 Больше всего видео"),
-    ("forward", "↪️ Больше всего пересылок"),
-    ("letters", "📜 Больше всего букв"),
+    ("msg", "⏳", "У меня мало времени, работы много", "Больше всего сообщений"),
+    ("letters", "📚", "Wow, that's a lot of words", "Больше всего букв"),
+    ("photo", "📸", "Фотограф-мемолог", "Больше всего фотографий и картинок"),
+    ("video", "📱", "Рилзовый раб", "Больше всего видео скинуто"),
+    ("link", "🙈", "Не открывал, не читал", "Больше всего ссылок"),
+    ("forward", "📢", "Амбасадор Трухи", "Больше всего пересланных сообщений"),
 ]
+_MEDALS = ["🥇", "🥈", "🥉"]
+
+
+def format_nominations(tops: dict, label: str):
+    """Telegram-HTML text for /nominations from {kind: [(name, n), ...]}; None if empty."""
+    blocks = []
+    for kind, icon, title, subtitle in _NOMINATIONS:
+        rows = tops.get(kind, [])[:3]
+        if not rows:
+            continue
+        lines = [f"{_MEDALS[i]} {escape(name)} — " + f"{n:,}".replace(",", " ")
+                 for i, (name, n) in enumerate(rows)]
+        blocks.append(f"{icon} <b>«{title}»</b>\n<i>{subtitle}</i>\n" + "\n".join(lines))
+    if not blocks:
+        return None
+    return f"🏆 <b>Номинации чата</b> · {label}\n\n" + "\n\n".join(blocks)
 
 
 async def cmd_nominations(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
     chat_id = update.effective_message.chat_id
     _, since, label = parse_stat_args(ctx.args)
-    blocks = []
-    for kind, title in _NOMINATIONS:
-        rows = storage.stat_top(conn, chat_id, kind, int(since // 86400))[:3]
-        if rows:
-            lines = [f"{i+1}. {name} — {n}" for i, (name, n) in enumerate(rows)]
-            blocks.append(title + "\n" + "\n".join(lines))
-    if not blocks:
+    since_day = int(since // 86400)
+    tops = {kind: storage.stat_top(conn, chat_id, kind, since_day)
+            for kind, *_ in _NOMINATIONS}
+    text = format_nominations(tops, label)
+    if not text:
         await update.effective_message.reply_text("Пока пусто — статистику только начал собирать.")
         return
-    await update.effective_message.reply_text(
-        f"🏆 Номинации ({label}):\n\n" + "\n\n".join(blocks))
+    await update.effective_message.reply_text(text, parse_mode="HTML")
 
 
 async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

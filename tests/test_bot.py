@@ -264,3 +264,20 @@ def test_message_stats():
     assert message_stats(note) == {"msg": 1, "video": 1}
     fwd = NS(**{**base, "text": "ok", "forward_origin": object()})
     assert message_stats(fwd) == {"msg": 1, "letters": 2, "forward": 1}
+
+
+def test_format_nominations():
+    from bot import format_nominations
+    assert format_nominations({}, "всё время") is None
+    text = format_nominations(
+        {"msg": [("Олег", 1240), ("<Аня>", 980), ("Илья, Б.", 5), ("Лишний", 1)],
+         "letters": [("Олег", 154230)]},
+        "1w",
+    )
+    assert "🥇 Олег — 1 240" in text
+    assert "🥈 &lt;Аня&gt; — 980" in text      # names are HTML-escaped
+    assert "🥉 Илья, Б. — 5" in text            # comma in name untouched
+    assert "Лишний" not in text                # top 3 only
+    assert "📚 <b>«Wow, that's a lot of words»</b>" in text
+    assert "Рилзовый раб" not in text          # empty category skipped
+    assert text.startswith("🏆 <b>Номинации чата</b> · 1w")

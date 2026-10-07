@@ -48,6 +48,19 @@ def init_db(path: str) -> sqlite3.Connection:
     rcols = [r[1] for r in conn.execute("PRAGMA table_info(reactions)")]
     if "target_user" not in rcols:
         conn.execute("ALTER TABLE reactions ADD COLUMN target_user TEXT NOT NULL DEFAULT ''")
+    if "ts" not in rcols:
+        # Older reactions keep ts=0: they only show up in all-time stats.
+        conn.execute("ALTER TABLE reactions ADD COLUMN ts REAL NOT NULL DEFAULT 0")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS stats (
+               chat_id   INTEGER NOT NULL,
+               user_name TEXT    NOT NULL,
+               kind      TEXT    NOT NULL,
+               day       INTEGER NOT NULL,
+               n         INTEGER NOT NULL,
+               PRIMARY KEY (chat_id, user_name, kind, day)
+           )"""
+    )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS gifs (
                id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,48 +176,74 @@ def author_by_message(conn: sqlite3.Connection, chat_id: int, message_id: int):
 def log_reaction(conn: sqlite3.Connection, chat_id: int, user_name: str,
                  emoji: str, target_user: str = "") -> None:
     conn.execute(
-        "INSERT INTO reactions (chat_id, user_name, emoji, target_user) "
-        "VALUES (?, ?, ?, ?)",
-        (chat_id, user_name, emoji, target_user),
+        "INSERT INTO reactions (chat_id, user_name, emoji, target_user, ts) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (chat_id, user_name, emoji, target_user, time.time()),
     )
     conn.commit()
 
 
-def received_counts(conn: sqlite3.Connection, chat_id: int):
+def received_counts(conn: sqlite3.Connection, chat_id: int, since: float = 0):
     """Per-author total reactions their messages received, most first."""
     return conn.execute(
         "SELECT target_user, COUNT(*) c FROM reactions "
-        "WHERE chat_id = ? AND target_user <> '' AND target_user <> '?' "
+        "WHERE chat_id = ? AND ts >= ? AND target_user <> '' AND target_user <> '?' "
         "GROUP BY target_user ORDER BY c DESC",
-        (chat_id,),
+        (chat_id, since),
     ).fetchall()
 
 
-def received_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str):
+def received_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str,
+                             since: float = 0):
     """Per-author count of a specific emoji their messages received, most first."""
     return conn.execute(
         "SELECT target_user, COUNT(*) c FROM reactions "
-        "WHERE chat_id = ? AND emoji = ? AND target_user <> '' AND target_user <> '?' "
+        "WHERE chat_id = ? AND emoji = ? AND ts >= ? "
+        "AND target_user <> '' AND target_user <> '?' "
         "GROUP BY target_user ORDER BY c DESC",
-        (chat_id, emoji),
+        (chat_id, emoji, since),
     ).fetchall()
 
 
-def reaction_counts(conn: sqlite3.Connection, chat_id: int):
+def reaction_counts(conn: sqlite3.Connection, chat_id: int, since: float = 0):
     """Per-user total reactions placed, most first: [(user_name, count), ...]."""
     return conn.execute(
-        "SELECT user_name, COUNT(*) c FROM reactions WHERE chat_id = ? "
+        "SELECT user_name, COUNT(*) c FROM reactions WHERE chat_id = ? AND ts >= ? "
         "GROUP BY user_name ORDER BY c DESC",
-        (chat_id,),
+        (chat_id, since),
     ).fetchall()
 
 
-def reaction_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str):
+def reaction_counts_by_emoji(conn: sqlite3.Connection, chat_id: int, emoji: str,
+                             since: float = 0):
     """Per-user count of a specific emoji, most first."""
     return conn.execute(
-        "SELECT user_name, COUNT(*) c FROM reactions WHERE chat_id = ? AND emoji = ? "
+        "SELECT user_name, COUNT(*) c FROM reactions "
+        "WHERE chat_id = ? AND emoji = ? AND ts >= ? "
         "GROUP BY user_name ORDER BY c DESC",
-        (chat_id, emoji),
+        (chat_id, emoji, since),
+    ).fetchall()
+
+
+def bump_stats(conn: sqlite3.Connection, chat_id: int, user_name: str,
+               counts: dict, day: int) -> None:
+    """Add per-kind counts (e.g. {"msg": 1, "letters": 42}) to a day's tally."""
+    for kind, n in counts.items():
+        conn.execute(
+            "INSERT INTO stats (chat_id, user_name, kind, day, n) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(chat_id, user_name, kind, day) DO UPDATE SET n = n + excluded.n",
+            (chat_id, user_name, kind, day, n),
+        )
+    conn.commit()
+
+
+def stat_top(conn: sqlite3.Connection, chat_id: int, kind: str, since_day: int = 0):
+    """Per-user total of one stat kind from since_day on, most first."""
+    return conn.execute(
+        "SELECT user_name, SUM(n) s FROM stats "
+        "WHERE chat_id = ? AND kind = ? AND day >= ? "
+        "GROUP BY user_name ORDER BY s DESC",
+        (chat_id, kind, since_day),
     ).fetchall()
 
 

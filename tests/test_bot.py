@@ -236,3 +236,29 @@ def test_search_system_prompt_appends_guidance_when_active():
 
 def test_search_system_prompt_unchanged_when_inactive():
     assert search_system_prompt("Базовый промпт.", False) == "Базовый промпт."
+
+
+def test_parse_stat_args():
+    import time
+    from bot import parse_stat_args
+    assert parse_stat_args([]) == (None, 0.0, "всё время")
+    assert parse_stat_args(["alltime"]) == (None, 0.0, "всё время")
+    emoji, since, label = parse_stat_args(["💊", "1W"])
+    assert (emoji, label) == ("💊", "1w")
+    assert abs(since - (time.time() - 7 * 86400)) < 5
+    _, since, _ = parse_stat_args(["2m"])
+    assert abs(since - (time.time() - 60 * 86400)) < 5
+
+
+def test_message_stats():
+    from types import SimpleNamespace as NS
+    from bot import message_stats
+    base = dict(text=None, caption=None, entities=(), caption_entities=(),
+                photo=None, video=None, video_note=None)
+    text = NS(**{**base, "text": "Привет, ok 123 https://x.y",
+                 "entities": (NS(type="url"),)})
+    assert message_stats(text) == {"msg": 1, "letters": 15, "link": 1}
+    photo = NS(**{**base, "photo": [object()], "caption": "ха"})
+    assert message_stats(photo) == {"msg": 1, "letters": 2, "photo": 1}
+    note = NS(**{**base, "video_note": object()})
+    assert message_stats(note) == {"msg": 1, "video": 1}

@@ -152,3 +152,26 @@ def test_settings_get_set_default():
     assert storage.get_setting(conn, "k", "def") == "v1"
     storage.set_setting(conn, "k", "v2")  # upsert
     assert storage.get_setting(conn, "k") == "v2"
+
+
+def test_reaction_since_filters_out_old_rows():
+    conn = _db()
+    storage.log_reaction(conn, 1, "Олег", "🔥", "Аня")
+    # Pre-migration reaction: no timestamp, all-time only.
+    conn.execute("INSERT INTO reactions (chat_id, user_name, emoji, target_user, ts) "
+                 "VALUES (1, 'Аня', '🔥', 'Олег', 0)")
+    assert storage.reaction_counts(conn, 1) == [("Олег", 1), ("Аня", 1)]
+    assert storage.reaction_counts(conn, 1, since=1) == [("Олег", 1)]
+    assert storage.received_counts_by_emoji(conn, 1, "🔥", since=1) == [("Аня", 1)]
+    assert storage.reaction_counts(conn, 1, since=2e10) == []
+
+
+def test_bump_stats_and_stat_top_window():
+    conn = _db()
+    storage.bump_stats(conn, 1, "Олег", {"msg": 1, "letters": 5}, day=100)
+    storage.bump_stats(conn, 1, "Олег", {"msg": 1, "letters": 3}, day=100)
+    storage.bump_stats(conn, 1, "Аня", {"msg": 1}, day=90)
+    storage.bump_stats(conn, 2, "Чужой", {"msg": 9}, day=100)
+    assert storage.stat_top(conn, 1, "msg") == [("Олег", 2), ("Аня", 1)]
+    assert storage.stat_top(conn, 1, "letters") == [("Олег", 8)]
+    assert storage.stat_top(conn, 1, "msg", since_day=95) == [("Олег", 2)]

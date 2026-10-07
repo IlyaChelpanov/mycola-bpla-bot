@@ -380,38 +380,112 @@ async def handle_reaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         storage.log_reaction(conn, mr.chat.id, user, emoji, target)
 
 
+_WINDOW_RE = re.compile(r"^(\d+)([dwmy])$")
+_WINDOW_DAYS = {"d": 1, "w": 7, "m": 30, "y": 365}
+
+
+def parse_stat_args(args):
+    """Split stat command args into (emoji, since_ts, label).
+
+    1d/2w/1m/1y limit the window (m = 30 days); 'alltime' or nothing means
+    everything. Any other arg is the emoji filter.
+    """
+    emoji, since, label = None, 0.0, "всё время"
+    for a in args or []:
+        m = _WINDOW_RE.match(a.lower())
+        if m:
+            days = int(m.group(1)) * _WINDOW_DAYS[m.group(2)]
+            since, label = time.time() - days * 86400, a.lower()
+        elif a.lower() == "alltime":
+            since, label = 0.0, "всё время"
+        else:
+            emoji = a
+    return emoji, since, label
+
+
+def message_stats(msg) -> dict:
+    """What one chat message adds to the /nominations counters."""
+    text = msg.text or msg.caption or ""
+    entities = list(msg.entities or ()) + list(msg.caption_entities or ())
+    counts = {
+        "msg": 1,
+        "letters": sum(ch.isalpha() for ch in text),
+        "photo": 1 if msg.photo else 0,
+        "video": 1 if (msg.video or msg.video_note) else 0,
+        "link": sum(e.type in ("url", "text_link") for e in entities),
+    }
+    return {k: n for k, n in counts.items() if n}
+
+
+async def count_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    msg = update.effective_message
+    if not msg or not msg.from_user or msg.from_user.is_bot:
+        return
+    # ponytail: UTC day buckets, so a window edge is fuzzy by up to a day.
+    storage.bump_stats(conn, msg.chat_id, msg.from_user.full_name,
+                       message_stats(msg), int(time.time() // 86400))
+
+
+_NOMINATIONS = [
+    ("msg", "🗣 Больше всего сообщений"),
+    ("link", "🔗 Больше всего ссылок"),
+    ("photo", "📸 Больше всего картинок"),
+    ("video", "🎬 Больше всего видео"),
+    ("letters", "📜 Больше всего букв"),
+]
+
+
+async def cmd_nominations(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    _, conn = _ctx(ctx)
+    chat_id = update.effective_message.chat_id
+    _, since, label = parse_stat_args(ctx.args)
+    blocks = []
+    for kind, title in _NOMINATIONS:
+        rows = storage.stat_top(conn, chat_id, kind, int(since // 86400))[:3]
+        if rows:
+            lines = [f"{i+1}. {name} — {n}" for i, (name, n) in enumerate(rows)]
+            blocks.append(title + "\n" + "\n".join(lines))
+    if not blocks:
+        await update.effective_message.reply_text("Пока пусто — статистику только начал собирать.")
+        return
+    await update.effective_message.reply_text(
+        f"🏆 Номинации ({label}):\n\n" + "\n\n".join(blocks))
+
+
 async def cmd_reactions(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
     chat_id = update.effective_message.chat_id
-    emoji = ctx.args[0] if ctx.args else None
+    emoji, since, label = parse_stat_args(ctx.args)
     if emoji:
-        rows = storage.reaction_counts_by_emoji(conn, chat_id, emoji)
-        title = f"Кто сколько раз ставил {emoji}:"
+        rows = storage.reaction_counts_by_emoji(conn, chat_id, emoji, since)
+        title = f"Кто сколько раз ставил {emoji} ({label}):"
     else:
-        rows = storage.reaction_counts(conn, chat_id)
-        title = "Кто сколько реакций наставил:"
+        rows = storage.reaction_counts(conn, chat_id, since)
+        title = f"Кто сколько реакций наставил ({label}):"
     await _reply_leaderboard(update, rows, title)
 
 
 async def cmd_mostliked(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
     chat_id = update.effective_message.chat_id
-    emoji = ctx.args[0] if ctx.args else None
+    emoji, since, label = parse_stat_args(ctx.args)
     if emoji:
-        rows = storage.received_counts_by_emoji(conn, chat_id, emoji)
-        title = f"Чьи сообщения собрали больше всего {emoji}:"
+        rows = storage.received_counts_by_emoji(conn, chat_id, emoji, since)
+        title = f"Чьи сообщения собрали больше всего {emoji} ({label}):"
     else:
-        rows = storage.received_counts(conn, chat_id)
-        title = "Чьи сообщения собрали больше всего реакций:"
+        rows = storage.received_counts(conn, chat_id, since)
+        title = f"Чьи сообщения собрали больше всего реакций ({label}):"
     await _reply_leaderboard(update, rows, title)
 
 
 async def cmd_pills(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _, conn = _ctx(ctx)
+    _, since, label = parse_stat_args(ctx.args)
     rows = storage.reaction_counts_by_emoji(
-        conn, update.effective_message.chat_id, "💊"
+        conn, update.effective_message.chat_id, "💊", since
     )
-    await _reply_leaderboard(update, rows, "💊 Рейтинг таблеточников:")
+    await _reply_leaderboard(update, rows, f"💊 Рейтинг таблеточников ({label}):")
 
 
 async def _reply_leaderboard(update, rows, title: str) -> None:
@@ -675,6 +749,7 @@ def main() -> None:
     app.add_handler(CommandHandler("reactions", cmd_reactions))
     app.add_handler(CommandHandler("mostliked", cmd_mostliked))
     app.add_handler(CommandHandler("pills", cmd_pills))
+    app.add_handler(CommandHandler("nominations", cmd_nominations))
     app.add_handler(CommandHandler("alias", cmd_alias))
     app.add_handler(CommandHandler("gifadd", cmd_gifadd))
     app.add_handler(CommandHandler("gifpools", cmd_gifpools))
@@ -685,6 +760,11 @@ def main() -> None:
     app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Separate group: counts every message without competing with replies.
+    app.add_handler(
+        MessageHandler(filters.UpdateType.MESSAGE & ~filters.COMMAND, count_message),
+        group=1,
+    )
 
     log.info("Bot starting (provider=%s, model=%s)", cfg.provider, effective_model(conn, cfg))
     # allowed_updates must explicitly include message_reaction — Telegram does

@@ -412,6 +412,7 @@ def message_stats(msg) -> dict:
         "letters": sum(ch.isalpha() for ch in text),
         "photo": 1 if msg.photo else 0,
         "video": 1 if (msg.video or msg.video_note) else 0,
+        "forward": 1 if msg.forward_origin else 0,
         "link": sum(e.type in ("url", "text_link") for e in entities),
     }
     return {k: n for k, n in counts.items() if n}
@@ -432,6 +433,7 @@ _NOMINATIONS = [
     ("link", "🔗 Больше всего ссылок"),
     ("photo", "📸 Больше всего картинок"),
     ("video", "🎬 Больше всего видео"),
+    ("forward", "↪️ Больше всего пересылок"),
     ("letters", "📜 Больше всего букв"),
 ]
 
